@@ -52,10 +52,13 @@ fn tags_filter_and_reindex() {
     let c1 = mk_card(&conn, k, "c1", "x", &[a, b]);
     let _c2 = mk_card(&conn, k, "c2", "y", &[a]);
     assert_eq!(card::list(&conn, k, &[a], 0, 50).unwrap().len(), 2);
-    let both = card::list(&conn, k, &[a, b], 0, 50).unwrap();
-    assert_eq!(both.len(), 1);
-    assert_eq!(both[0].id, c1);
-    assert_eq!(both[0].tags.len(), 2);
+    // 多标签为 OR:具备任一标签即命中,且不重复
+    let any = card::list(&conn, k, &[a, b], 0, 50).unwrap();
+    assert_eq!(any.len(), 2);
+    let only_b = card::list(&conn, k, &[b], 0, 50).unwrap();
+    assert_eq!(only_b.len(), 1);
+    assert_eq!(only_b[0].id, c1);
+    assert_eq!(only_b[0].tags.len(), 2);
     // 标签名被索引;重命名后搜索生效
     tag::update(&conn, b, "关系型存储", "#0f0").unwrap();
     assert_eq!(search::search(&conn, "关系型", None, &[], 20).unwrap().len(), 1);

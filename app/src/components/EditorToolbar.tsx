@@ -31,11 +31,12 @@ import {
   UndoOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
-import { App, Button, Menu, Popover, Tooltip } from 'antd';
+import { App, Button, Input, Menu, Modal, Popover, Tooltip } from 'antd';
 import type { ButtonProps } from 'antd';
 import type { Editor } from '@tiptap/react';
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
+import ModalFooter from './ModalFooter';
 
 const TEXT_COLORS = ['#000000', '#e03131', '#f08c00', '#2f9e44', '#1c7ed6', '#7048e8', '#c2255c', '#868e96'];
 const HL_COLORS = ['#fff3bf', '#ffd8a8', '#d3f9d8', '#c5f6fa', '#d0ebff', '#e5dbff', '#ffdeeb', '#e9ecef'];
@@ -200,19 +201,29 @@ export default function EditorToolbar({ editor, preview, fullscreen, onPreview, 
     reader.readAsDataURL(file);
   };
 
-  const find = () => {
-    const q = window.prompt('查找内容');
-    if (!q) return;
-    const w = window as unknown as { find?: (s: string, cs?: boolean, bw?: boolean, wrap?: boolean) => boolean };
-    if (!w.find?.(q, false, false, true)) message.info('未找到');
-  };
+  // 查找/链接的输入弹窗(替代系统 prompt)
+  const [dlg, setDlg] = useState<{ kind: 'find' | 'link'; value: string } | null>(null);
+
+  const find = () => setDlg({ kind: 'find', value: '' });
 
   const setLink = () => {
     const prev = editor.getAttributes('link').href as string | undefined;
-    const url = window.prompt('链接地址(留空取消链接)', prev ?? 'https://');
-    if (url === null) return;
-    if (url === '') c().unsetLink().run();
-    else c().extendMarkRange('link').setLink({ href: url }).run();
+    setDlg({ kind: 'link', value: prev ?? 'https://' });
+  };
+
+  const confirmDlg = () => {
+    if (!dlg) return;
+    const { kind, value } = dlg;
+    setDlg(null);
+    if (kind === 'find') {
+      if (!value) return;
+      const w = window as unknown as { find?: (s: string, cs?: boolean, bw?: boolean, wrap?: boolean) => boolean };
+      if (!w.find?.(value, false, false, true)) message.info('未找到');
+    } else if (value.trim() === '') {
+      c().unsetLink().run();
+    } else {
+      c().extendMarkRange('link').setLink({ href: value.trim() }).run();
+    }
   };
 
   return (
@@ -346,6 +357,24 @@ export default function EditorToolbar({ editor, preview, fullscreen, onPreview, 
       </div>
       </div>
       <Btn tip="向右" icon={<RightOutlined />} onClick={() => slide(240)} style={arrowStyle(st.right)} />
+      <Modal
+        open={dlg !== null}
+        title={dlg?.kind === 'find' ? '查找内容' : '链接地址'}
+        width={420}
+        centered
+        destroyOnClose
+        onCancel={() => setDlg(null)}
+        footer={<ModalFooter onOk={confirmDlg} onCancel={() => setDlg(null)} />}
+      >
+        <Input
+          autoFocus
+          allowClear
+          value={dlg?.value ?? ''}
+          placeholder={dlg?.kind === 'find' ? '输入要查找的文字' : '留空则取消链接'}
+          onChange={(e) => setDlg((d) => (d ? { ...d, value: e.target.value } : d))}
+          onPressEnter={confirmDlg}
+        />
+      </Modal>
     </div>
   );
 }

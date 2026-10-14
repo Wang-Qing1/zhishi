@@ -100,7 +100,7 @@ pub fn delete(conn: &Connection, id: i64) -> Result<()> {
     Ok(())
 }
 
-/// 列表(不含正文 JSON);tag_ids 为 AND 过滤
+/// 列表(不含正文 JSON);tag_ids 为 OR 过滤(具备任一标签即可)
 pub fn list(conn: &Connection, kb_id: i64, tag_ids: &[i64], offset: i64, limit: i64) -> Result<Vec<CardSummary>> {
     let sql = format!(
         "SELECT c.id, c.kb_id, c.title, substr(c.content_text, 1, 120), c.updated_at FROM card c

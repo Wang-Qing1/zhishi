@@ -1,5 +1,5 @@
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
-import { App, Card, Col, Form, Input, Modal, Row, Tag, Tooltip, Typography } from 'antd';
+import { App, Card, Col, Form, Input, Modal, Row, Tag, Typography } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, errMsg } from '../api';
@@ -14,6 +14,7 @@ export default function KbList() {
   const nav = useNavigate();
   const [list, setList] = useState<Kb[]>([]);
   const [editing, setEditing] = useState<Partial<Kb> | null>(null);
+  const [keyword, setKeyword] = useState('');
   const [form] = Form.useForm();
 
   const reload = useCallback(() => api.kbList().then(setList).catch((e) => message.error(errMsg(e))), [message]);
@@ -38,29 +39,41 @@ export default function KbList() {
     }
   };
 
+  const kw = keyword.trim().toLowerCase();
+  const shown = kw ? list.filter((kb) => kb.name.toLowerCase().includes(kw)) : list;
+
   return (
     <div className="page">
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography.Title level={4} style={{ margin: 0 }}>
           我的知识库
         </Typography.Title>
-        <IconBtn tip="新建知识库" type="primary" icon={<PlusOutlined />} onClick={() => openEdit({})} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Input
+            allowClear
+            placeholder="按名称搜索知识库"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            style={{ width: 240 }}
+          />
+          <IconBtn tip="新建知识库" type="primary" icon={<PlusOutlined />} onClick={() => openEdit({})} />
+        </div>
       </div>
       {list.length === 0 ? (
         <EmptyHint text="还没有知识库,点击右上角加号新建" />
+      ) : shown.length === 0 ? (
+        <EmptyHint text="没有匹配的知识库" />
       ) : (
         <Row gutter={[16, 16]}>
-          {list.map((kb) => (
+          {shown.map((kb) => (
             <Col key={kb.id} xs={24} sm={12} lg={8} xl={6}>
               <Card
                 hoverable
                 title={kb.name}
                 extra={
-                  <Tooltip title="卡片数量">
-                    <Tag color="blue" style={{ margin: 0, borderRadius: 10 }}>
-                      {kb.cardCount}
-                    </Tag>
-                  </Tooltip>
+                  <Tag color="blue" style={{ margin: 0, borderRadius: 10 }}>
+                    卡片：{kb.cardCount}
+                  </Tag>
                 }
                 onClick={() => nav(`/kb/${kb.id}`)}
                 actions={[

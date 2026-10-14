@@ -1,5 +1,5 @@
 import { ApartmentOutlined, ArrowLeftOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { App, Card, ColorPicker, Form, Input, Modal, Space, Tag, Typography } from 'antd';
+import { App, Card, Col, ColorPicker, Form, Input, Modal, Row, Select, Space, Tag, Typography } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, errMsg } from '../api';
@@ -18,6 +18,7 @@ export default function KbDetail() {
   const [tags, setTags] = useState<TagT[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
   const [tagEdit, setTagEdit] = useState<TagT | null>(null);
+  const [keyword, setKeyword] = useState('');
   const [form] = Form.useForm();
 
   const loadMeta = useCallback(async () => {
@@ -42,7 +43,8 @@ export default function KbDetail() {
     loadCards();
   }, [loadCards]);
 
-  const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const kw = keyword.trim().toLowerCase();
+  const shown = kw ? cards.filter((c) => c.title.toLowerCase().includes(kw)) : cards;
 
   const saveTag = async () => {
     const v = await form.validateFields();
@@ -52,6 +54,16 @@ export default function KbDetail() {
       setTagEdit(null);
       loadMeta();
       loadCards();
+    } catch (e) {
+      message.error(errMsg(e));
+    }
+  };
+
+  const delCard = async (id: number) => {
+    try {
+      await api.cardDelete(id);
+      loadCards();
+      loadMeta();
     } catch (e) {
       message.error(errMsg(e));
     }
@@ -79,17 +91,40 @@ export default function KbDetail() {
       </Space>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, gap: 12 }}>
-        <div>
-          <span style={{ marginRight: 8 }}>
-            <Hint text={tags.length === 0 ? '暂无标签,编辑卡片时可创建' : '标签筛选(同时满足):勾选多个标签只显示同时具备的卡片;右键标签可改名/改色/删除'} />
-          </span>
-          {tags.map((t) => (
-            <Tag.CheckableTag key={t.id} checked={selected.includes(t.id)} onChange={() => toggle(t.id)}
-              onContextMenu={(e) => { e.preventDefault(); setTagEdit(t); form.setFieldsValue({ name: t.name, color: t.color }); }}
-              style={{ borderLeft: `4px solid ${t.color}` }}>
-              {t.name} ({t.cardCount})
-            </Tag.CheckableTag>
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+          <Input
+              allowClear
+              placeholder="按名称搜索卡片"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              style={{ width: 220 }}
+          />
+          <Select
+            mode="multiple"
+            allowClear
+            maxTagCount="responsive"
+            placeholder="按标签筛选"
+            style={{ width: 280 }}
+            value={selected}
+            onChange={setSelected}
+            optionFilterProp="label"
+            options={tags.map((t) => ({ value: t.id, label: t.name, tag: t }))}
+            optionRender={(o) => {
+              const t = (o.data as { tag: TagT }).tag;
+              return (
+                <span
+                  style={{ display: 'block', borderLeft: `4px solid ${t.color}`, paddingLeft: 8 }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setTagEdit(t);
+                    form.setFieldsValue({ name: t.name, color: t.color });
+                  }}
+                >
+                  {t.name} ({t.cardCount})
+                </span>
+              );
+            }}
+          />
         </div>
         <Space>
           <IconBtn tip="知识地图" icon={<ApartmentOutlined />} onClick={() => nav(`/kb/${kbId}/graph`)} />
@@ -99,23 +134,46 @@ export default function KbDetail() {
 
       {cards.length === 0 ? (
         <EmptyHint text="没有卡片,点击右上角加号新建" />
+      ) : shown.length === 0 ? (
+        <EmptyHint text="没有匹配的卡片" />
       ) : (
-        <Space direction="vertical" style={{ width: '100%' }}>
-          {cards.map((c) => (
-            <Card key={c.id} size="small" className="card-item" onClick={() => nav(`/kb/${kbId}/card/${c.id}`)}>
-              <Typography.Text strong>{c.title}</Typography.Text>
-              <div className="excerpt">{c.excerpt || '(空内容)'}</div>
-              <Space size={4} wrap>
-                {c.tags.map((t) => (
-                  <Tag key={t.id} color={t.color}>
-                    {t.name}
-                  </Tag>
-                ))}
-                <Typography.Text type="secondary">{new Date(c.updatedAt).toLocaleString()}</Typography.Text>
-              </Space>
-            </Card>
+        <Row gutter={[16, 16]}>
+          {shown.map((c) => (
+            <Col key={c.id} xs={24} sm={12} lg={8} xl={6}>
+              <Card
+                hoverable
+                size="small"
+                className="card-item"
+                style={{ height: '100%' }}
+                onClick={() => nav(`/kb/${kbId}/card/${c.id}`)}
+              >
+                <Typography.Text strong ellipsis style={{ display: 'block' }}>
+                  {c.title}
+                </Typography.Text>
+                <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }} style={{ minHeight: 44, margin: '8px 0' }}>
+                  {c.excerpt || '(空内容)'}
+                </Typography.Paragraph>
+                <Space size={4} wrap>
+                  {c.tags.map((t) => (
+                    <Tag key={t.id} color={t.color} style={{ margin: 0 }}>
+                      {t.name}
+                    </Tag>
+                  ))}
+                </Space>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {new Date(c.updatedAt).toLocaleString()}
+                  </Typography.Text>
+                  <span className="card-del" onClick={(e) => e.stopPropagation()}>
+                    <Confirm title="删除该卡片?" okButtonProps={{ danger: true }} onConfirm={() => delCard(c.id)}>
+                      <IconBtn tip="删除" danger type="text" icon={<DeleteOutlined />} />
+                    </Confirm>
+                  </span>
+                </div>
+              </Card>
+            </Col>
           ))}
-        </Space>
+        </Row>
       )}
 
       <Modal

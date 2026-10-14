@@ -105,7 +105,7 @@ pub fn set_tags(conn: &Connection, card_id: i64, kb_id: i64, tag_ids: &[i64]) ->
     Ok(())
 }
 
-/// 标签 AND 过滤的 SQL 片段(卡片别名必须为 c);ids 为 i64 直接内联,无注入风险
+/// 标签 OR 过滤的 SQL 片段(具备任一所选标签即命中,卡片别名必须为 c);ids 为 i64 直接内联,无注入风险
 pub fn filter_sql(tag_ids: &[i64]) -> String {
     let mut ids = tag_ids.to_vec();
     ids.sort_unstable();
@@ -114,10 +114,7 @@ pub fn filter_sql(tag_ids: &[i64]) -> String {
         return String::new();
     }
     let list = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
-    format!(
-        " AND (SELECT COUNT(DISTINCT ct.tag_id) FROM card_tag ct WHERE ct.card_id = c.id AND ct.tag_id IN ({list})) = {}",
-        ids.len()
-    )
+    format!(" AND EXISTS (SELECT 1 FROM card_tag ct WHERE ct.card_id = c.id AND ct.tag_id IN ({list}))")
 }
 
 #[tauri::command]

@@ -58,9 +58,9 @@ export default function RichEditor({ initial, onChange, onReady }: Props) {
   });
 
   useEffect(() => () => editor?.destroy(), [editor]);
-  // 预览 = 只读模式
+  // 预览 = 只读模式;第二个参数 false = 不触发 update 事件,否则刚打开卡片就会被误判为已修改
   useEffect(() => {
-    editor?.setEditable(!preview);
+    editor?.setEditable(!preview, false);
   }, [editor, preview]);
   // Esc 退出全屏
   useEffect(() => {
@@ -80,7 +80,7 @@ export default function RichEditor({ initial, onChange, onReady }: Props) {
         onPreview={() => setPreview((p) => !p)}
         onFullscreen={() => setFullscreen((f) => !f)}
       />
-      <EditorContent editor={editor} />
+      <EditorContent editor={editor} className="editor-body" />
     </div>
   );
 }

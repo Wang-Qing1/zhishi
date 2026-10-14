@@ -246,12 +246,15 @@ function Inner() {
 
   return (
     <div className="page">
-      <Space style={{ marginBottom: 12 }} wrap>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+      <Space wrap>
         <IconBtn tip="返回" icon={<ArrowLeftOutlined />} onClick={() => nav(`/kb/${kbId}`)} />
         <Typography.Title level={4} style={{ margin: 0 }}>
           知识地图
         </Typography.Title>
         <Hint text={`${focus ? '聚焦子图' : '全图'}(${count} 个节点) · 单击节点打开卡片 · 右键节点打开菜单(编辑、聚焦子图、添加/删除关联) · 拖动节点右侧圆点到另一节点建立关联 · 单击连线删除`} />
+      </Space>
+      <Space wrap>
         <Confirm title="重新自动排列?已保存的手动位置将被清除" onConfirm={resetLayout}>
           <IconBtn tip="重新自动排列" icon={<ReloadOutlined />} />
         </Confirm>
@@ -263,6 +266,7 @@ function Inner() {
           </>
         )}
       </Space>
+      </div>
       <div className="graph-wrap">
         <ReactFlow
           nodes={nodes}
@@ -280,6 +284,7 @@ function Inner() {
           onNodeDragStop={(_, __, ns) => savePositions(ns)}
           onSelectionDragStop={(_, ns) => savePositions(ns)}
           zoomOnDoubleClick={false}
+          proOptions={{ hideAttribution: true }}
           fitView
           fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
           minZoom={0.1}

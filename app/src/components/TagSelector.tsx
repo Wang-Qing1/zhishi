@@ -9,13 +9,14 @@ interface Props {
   kbId: number;
   allTags: Tag[];
   value: number[];
+  size?: 'large' | 'middle' | 'small';
   onChange: (ids: number[]) => void;
   /** 新建标签后通知父组件刷新标签列表 */
   onTagsChanged: () => void;
 }
 
 /** 多选标签,输入不存在的名称并回车即可新建 */
-export default function TagSelector({ kbId, allTags, value, onChange, onTagsChanged }: Props) {
+export default function TagSelector({ kbId, allTags, value, size, onChange, onTagsChanged }: Props) {
   const { message } = App.useApp();
   const [search, setSearch] = useState('');
 
@@ -47,6 +48,7 @@ export default function TagSelector({ kbId, allTags, value, onChange, onTagsChan
   return (
     <Select
       mode="tags"
+      size={size}
       style={{ width: '100%' }}
       placeholder="选择或输入新标签后回车"
       value={value}
@@ -58,7 +60,7 @@ export default function TagSelector({ kbId, allTags, value, onChange, onTagsChan
       tagRender={({ value: v, label, closable, onClose }) => {
         const t = allTags.find((x) => x.id === v);
         return (
-          <AntTag color={t?.color} closable={closable} onClose={onClose} style={{ marginRight: 4 }}>
+          <AntTag color={t?.color} closable={closable} onClose={onClose} style={{ marginRight: 4, borderRadius: 14, height: 28, display: 'inline-flex', alignItems: 'center', padding: '0 10px', fontSize: 13 }}>
             {label}
           </AntTag>
         );

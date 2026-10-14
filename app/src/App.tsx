@@ -29,7 +29,7 @@ export default function App() {
     <Layout style={{ height: '100%' }}>
       <Layout.Header className="app-header">
         <span className="app-title" onClick={() => nav('/')}>
-          知识库
+          知识图谱
         </span>
         <div style={{ flex: 1 }} />
         <IconBtn tip="全局搜索 (Ctrl+K)" icon={<SearchOutlined />} onClick={() => setSearchOpen(true)} />

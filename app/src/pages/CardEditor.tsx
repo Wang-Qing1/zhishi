@@ -1,12 +1,12 @@
-import { ApartmentOutlined, ArrowLeftOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons';
-import { App, Badge, Card, Col, Input, Row, Space, Tooltip } from 'antd';
+import { ApartmentOutlined, ArrowLeftOutlined, SaveOutlined } from '@ant-design/icons';
+import { App, Badge, Card, Col, Input, Modal, Row, Space, Tooltip } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, errMsg } from '../api';
 import Hint from '../components/Hint';
-import Confirm from '../components/Confirm';
 import IconBtn from '../components/IconBtn';
 import LinkPanel from '../components/LinkPanel';
+import ModalFooter from '../components/ModalFooter';
 import RichEditor from '../components/RichEditor';
 import TagSelector from '../components/TagSelector';
 import type { Tag } from '../types';
@@ -25,6 +25,7 @@ export default function CardEditor() {
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [leaveAsk, setLeaveAsk] = useState(false);
   // 编辑器内容放 ref,避免每次按键触发整页重渲染
   const content = useRef({ json: '', text: '' });
 
@@ -84,43 +85,34 @@ export default function CardEditor() {
     return () => window.removeEventListener('keydown', h);
   }, [save]);
 
-  const remove = async () => {
-    if (cardId === null) return;
-    try {
-      await api.cardDelete(cardId);
-      nav(`/kb/${kbId}`);
-    } catch (e) {
-      message.error(errMsg(e));
-    }
-  };
-
   const back = () => {
-    if (dirty && !window.confirm('有未保存的修改,确定离开?')) return;
+    if (dirty) {
+      setLeaveAsk(true);
+      return;
+    }
     nav(`/kb/${kbId}`);
   };
 
   return (
-    <div className="page">
-      <Space style={{ marginBottom: 12 }}>
+    <div className="page" style={{ display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <IconBtn tip="返回" icon={<ArrowLeftOutlined />} onClick={back} />
-        <IconBtn tip="保存 (Ctrl+S)" type="primary" icon={<SaveOutlined />} loading={saving} onClick={save} />
-        {cardId !== null && (
-          <>
+        <Space>
+          {dirty && (
+            <Tooltip title="有未保存的修改">
+              <Badge status="warning" />
+            </Tooltip>
+          )}
+          <IconBtn tip="保存 (Ctrl+S)" type="primary" icon={<SaveOutlined />} loading={saving} onClick={save} />
+          {cardId !== null && (
             <IconBtn tip="在地图中查看" icon={<ApartmentOutlined />} onClick={() => nav(`/kb/${kbId}/graph?focus=${cardId}`)} />
-            <Confirm title="删除该卡片?" okButtonProps={{ danger: true }} onConfirm={remove}>
-              <IconBtn tip="删除" danger icon={<DeleteOutlined />} />
-            </Confirm>
-          </>
-        )}
-        {dirty && (
-          <Tooltip title="有未保存的修改">
-            <Badge status="warning" />
-          </Tooltip>
-        )}
-      </Space>
+          )}
+        </Space>
+      </div>
 
-      <Row gutter={16}>
-        <Col xs={24} lg={16}>
+      {/* 第一行:标题 : 标签 = 3 : 1 */}
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col xs={24} lg={18}>
           <Input
             size="large"
             placeholder="卡片标题"
@@ -130,8 +122,26 @@ export default function CardEditor() {
               setTitle(e.target.value);
               setDirty(true);
             }}
-            style={{ marginBottom: 12 }}
           />
+        </Col>
+        <Col xs={24} lg={6} className="title-row">
+          <TagSelector
+            kbId={kbId}
+            allTags={allTags}
+            value={tagIds}
+            size="large"
+            onChange={(ids) => {
+              setTagIds(ids);
+              setDirty(true);
+            }}
+            onTagsChanged={loadTags}
+          />
+        </Col>
+      </Row>
+
+      {/* 第二行:正文 : 关联卡片 = 3 : 1,等高并占满剩余视窗高度 */}
+      <Row gutter={16} style={{ flex: 1, minHeight: 360 }}>
+        <Col xs={24} lg={18} className="fill" style={{ height: '100%' }}>
           {initial !== null && (
             <RichEditor
               key={cardId ?? 'new'}
@@ -146,20 +156,13 @@ export default function CardEditor() {
             />
           )}
         </Col>
-        <Col xs={24} lg={8}>
-          <Card size="small" title="标签" style={{ marginBottom: 16 }}>
-            <TagSelector
-              kbId={kbId}
-              allTags={allTags}
-              value={tagIds}
-              onChange={(ids) => {
-                setTagIds(ids);
-                setDirty(true);
-              }}
-              onTagsChanged={loadTags}
-            />
-          </Card>
-          <Card size="small" title="关联卡片">
+        <Col xs={24} lg={6} style={{ height: '100%' }}>
+          <Card
+            size="small"
+            title="关联卡片"
+            style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+            styles={{ body: { flex: 1, minHeight: 0, overflow: 'auto' } }}
+          >
             {cardId === null ? (
               <Hint text="保存卡片后可添加关联" />
             ) : (
@@ -168,6 +171,15 @@ export default function CardEditor() {
           </Card>
         </Col>
       </Row>
+
+      <Modal
+        open={leaveAsk}
+        title="有未保存的修改,确定离开?"
+        width={420}
+        centered
+        onCancel={() => setLeaveAsk(false)}
+        footer={<ModalFooter onOk={() => nav(`/kb/${kbId}`)} onCancel={() => setLeaveAsk(false)} okTip="离开" cancelTip="继续编辑" />}
+      />
     </div>
   );
 }
