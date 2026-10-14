@@ -7,6 +7,7 @@ import { EmptyHint } from '../components/Hint';
 import Confirm from '../components/Confirm';
 import IconBtn from '../components/IconBtn';
 import ModalFooter from '../components/ModalFooter';
+import { hideSplash } from '../splash';
 import type { Kb } from '../types';
 
 export default function KbList() {
@@ -19,7 +20,8 @@ export default function KbList() {
 
   const reload = useCallback(() => api.kbList().then(setList).catch((e) => message.error(errMsg(e))), [message]);
   useEffect(() => {
-    reload();
+    // 首次数据加载完成后收起启动画面
+    reload().finally(hideSplash);
   }, [reload]);
 
   const openEdit = (kb: Partial<Kb>) => {

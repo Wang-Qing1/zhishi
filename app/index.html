@@ -4,9 +4,48 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>知识库</title>
+    <!-- 启动画面:纯 HTML/CSS,不依赖 JS,页面一加载就能显示;主界面数据加载完成后由 src/splash.ts 收起 -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #f5f6f8; }
+      #boot {
+        position: fixed; inset: 0; z-index: 9999; background: #f5f6f8;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
+        transition: opacity .3s ease;
+      }
+      #boot.hide { opacity: 0; pointer-events: none; }
+      #boot svg { width: 96px; height: 96px; filter: drop-shadow(0 6px 16px rgba(22, 119, 255, .25)); }
+      .boot-track { width: 200px; height: 6px; border-radius: 3px; background: #dce6f7; overflow: hidden; }
+      .boot-bar {
+        height: 100%; width: 0; border-radius: 3px; background: #1677ff;
+        animation: boot-grow 2.5s cubic-bezier(.1, .6, .3, 1) forwards;
+      }
+      #boot.done .boot-bar { animation: none; width: 100%; transition: width .2s ease; }
+      @keyframes boot-grow { to { width: 90%; } }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="boot">
+      <!-- 应用图标(与 scripts/gen-icon.mjs 生成的图标一致) -->
+      <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+        <rect x="64" y="64" width="896" height="896" rx="190" fill="#3462eb" />
+        <g stroke="#a9bdf5" stroke-width="22" stroke-linecap="round">
+          <path d="M512 512L290 320M512 512L734 320M512 512L290 704M512 512L734 704M290 320L734 320M290 704L734 704" />
+        </g>
+        <g fill="#c8dcff">
+          <circle cx="290" cy="320" r="58" />
+          <circle cx="734" cy="320" r="58" />
+          <circle cx="290" cy="704" r="58" />
+          <circle cx="734" cy="704" r="58" />
+        </g>
+        <circle cx="512" cy="512" r="100" fill="#fff" />
+        <g fill="#3462eb">
+          <rect x="458" y="466" width="48" height="92" rx="6" />
+          <rect x="518" y="466" width="48" height="92" rx="6" />
+        </g>
+      </svg>
+      <div class="boot-track"><div class="boot-bar"></div></div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -5,6 +5,7 @@ import { App as AntApp, ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import App from './App';
 import './styles.css';
+import './splash';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

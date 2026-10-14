@@ -1,7 +1,8 @@
 import { Layout } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useEffect, useState } from 'react';
-import { Route, Routes, useNavigate } from 'react-router-dom';
+import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { hideSplash } from './splash';
 import GlobalSearch from './components/GlobalSearch';
 import IconBtn from './components/IconBtn';
 import CardEditor from './pages/CardEditor';
@@ -11,6 +12,12 @@ import KbList from './pages/KbList';
 
 export default function App() {
   const nav = useNavigate();
+  const { pathname } = useLocation();
+
+  // 非首页路由(如刷新停留在卡片页)不会触发知识库列表的加载,这里直接收起启动画面
+  useEffect(() => {
+    if (pathname !== '/') hideSplash();
+  }, [pathname]);
   const [searchOpen, setSearchOpen] = useState(false);
 
   // Ctrl+K 打开全局搜索
