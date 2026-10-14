@@ -1,8 +1,9 @@
-import { Empty, Input, List, Modal, Tag, Typography } from 'antd';
+import { Input, List, Modal, Tag, Typography } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import type { SearchHit } from '../types';
+import { EmptyHint } from './Hint';
 import Highlight from './Highlight';
 
 export default function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -47,7 +48,7 @@ export default function GlobalSearch({ open, onClose }: { open: boolean; onClose
       />
       <div style={{ maxHeight: 420, overflow: 'auto', marginTop: 12 }}>
         {hits.length === 0 ? (
-          <Empty description={q.trim() ? '无结果' : '输入关键词开始搜索'} />
+          <EmptyHint text={q.trim() ? '无结果' : '输入关键词开始搜索'} />
         ) : (
           <List
             dataSource={hits}

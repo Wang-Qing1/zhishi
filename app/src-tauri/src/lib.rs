@@ -41,6 +41,8 @@ pub fn run() {
             link::link_delete,
             link::link_list_by_card,
             graph::graph_get,
+            graph::graph_save_positions,
+            graph::graph_reset_positions,
             search::search_global,
         ])
         .run(tauri::generate_context!())

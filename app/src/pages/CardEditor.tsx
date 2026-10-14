@@ -1,8 +1,11 @@
 import { ApartmentOutlined, ArrowLeftOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons';
-import { App, Button, Card, Col, Input, Popconfirm, Row, Space, Typography } from 'antd';
+import { App, Badge, Card, Col, Input, Row, Space, Tooltip } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, errMsg } from '../api';
+import Hint from '../components/Hint';
+import Confirm from '../components/Confirm';
+import IconBtn from '../components/IconBtn';
 import LinkPanel from '../components/LinkPanel';
 import RichEditor from '../components/RichEditor';
 import TagSelector from '../components/TagSelector';
@@ -99,25 +102,21 @@ export default function CardEditor() {
   return (
     <div className="page">
       <Space style={{ marginBottom: 12 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={back}>
-          返回
-        </Button>
-        <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={save}>
-          保存 (Ctrl+S)
-        </Button>
+        <IconBtn tip="返回" icon={<ArrowLeftOutlined />} onClick={back} />
+        <IconBtn tip="保存 (Ctrl+S)" type="primary" icon={<SaveOutlined />} loading={saving} onClick={save} />
         {cardId !== null && (
           <>
-            <Button icon={<ApartmentOutlined />} onClick={() => nav(`/kb/${kbId}/graph?focus=${cardId}`)}>
-              在地图中查看
-            </Button>
-            <Popconfirm title="删除该卡片?" okButtonProps={{ danger: true }} onConfirm={remove}>
-              <Button danger icon={<DeleteOutlined />}>
-                删除
-              </Button>
-            </Popconfirm>
+            <IconBtn tip="在地图中查看" icon={<ApartmentOutlined />} onClick={() => nav(`/kb/${kbId}/graph?focus=${cardId}`)} />
+            <Confirm title="删除该卡片?" okButtonProps={{ danger: true }} onConfirm={remove}>
+              <IconBtn tip="删除" danger icon={<DeleteOutlined />} />
+            </Confirm>
           </>
         )}
-        {dirty && <Typography.Text type="warning">未保存</Typography.Text>}
+        {dirty && (
+          <Tooltip title="有未保存的修改">
+            <Badge status="warning" />
+          </Tooltip>
+        )}
       </Space>
 
       <Row gutter={16}>
@@ -162,7 +161,7 @@ export default function CardEditor() {
           </Card>
           <Card size="small" title="关联卡片">
             {cardId === null ? (
-              <Typography.Text type="secondary">保存卡片后可添加关联</Typography.Text>
+              <Hint text="保存卡片后可添加关联" />
             ) : (
               <LinkPanel kbId={kbId} cardId={cardId} />
             )}

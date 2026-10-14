@@ -6,7 +6,10 @@ use rusqlite::Connection;
 use crate::error::{AppError, Result};
 
 /// 迁移脚本按顺序追加,PRAGMA user_version 记录已执行数量
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/001_init.sql"),
+    include_str!("../migrations/002_card_position.sql"),
+];
 
 pub struct Db(pub Mutex<Connection>);
 

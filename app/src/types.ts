@@ -48,6 +48,9 @@ export interface Link {
 export interface GraphNode {
   id: number;
   title: string;
+  /** 已保存的画布位置,null 表示尚未布局 */
+  x: number | null;
+  y: number | null;
   tags: Tag[];
 }
 

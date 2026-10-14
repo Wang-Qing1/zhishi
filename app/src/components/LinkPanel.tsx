@@ -1,7 +1,10 @@
-import { App, Button, Input, List, Popconfirm, Select, Space, Tag } from 'antd';
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { App, Input, List, Select, Tag } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { api, errMsg } from '../api';
+import Confirm from './Confirm';
+import IconBtn from './IconBtn';
 import type { CardSummary, Link } from '../types';
 import { RELATION_TYPES, relationLabel } from '../types';
 
@@ -37,7 +40,7 @@ export default function LinkPanel({ kbId, cardId }: { kbId: number; cardId: numb
 
   return (
     <div>
-      <Space.Compact style={{ width: '100%', marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <Select style={{ width: 90 }} value={type} onChange={setType} options={RELATION_TYPES} />
         <Select
           showSearch
@@ -48,10 +51,8 @@ export default function LinkPanel({ kbId, cardId }: { kbId: number; cardId: numb
           optionFilterProp="label"
           options={cards.map((c) => ({ value: c.id, label: c.title }))}
         />
-        <Button type="primary" disabled={!dst} onClick={add}>
-          添加
-        </Button>
-      </Space.Compact>
+        <IconBtn tip="添加关联" type="primary" icon={<PlusOutlined />} disabled={!dst} onClick={add} />
+      </div>
       <Input placeholder="备注(可选)" value={note} onChange={(e) => setNote(e.target.value)} style={{ marginBottom: 8 }} />
       <List
         size="small"
@@ -64,9 +65,9 @@ export default function LinkPanel({ kbId, cardId }: { kbId: number; cardId: numb
           return (
             <List.Item
               actions={[
-                <Popconfirm key="d" title="删除该关联?" onConfirm={() => api.linkDelete(l.id).then(reload)}>
-                  <a>删除</a>
-                </Popconfirm>,
+                <Confirm key="d" title="删除该关联?" onConfirm={() => api.linkDelete(l.id).then(reload)}>
+                  <IconBtn tip="删除关联" size="small" danger icon={<DeleteOutlined />} />
+                </Confirm>,
               ]}
             >
               <Tag>{out ? '→' : '←'} {relationLabel(l.relationType)}</Tag>

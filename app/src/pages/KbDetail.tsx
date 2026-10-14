@@ -1,8 +1,12 @@
-import { ApartmentOutlined, ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons';
-import { App, Button, Card, ColorPicker, Empty, Form, Input, Modal, Popconfirm, Space, Tag, Typography } from 'antd';
+import { ApartmentOutlined, ArrowLeftOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { App, Card, ColorPicker, Form, Input, Modal, Space, Tag, Typography } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, errMsg } from '../api';
+import Hint, { EmptyHint } from '../components/Hint';
+import Confirm from '../components/Confirm';
+import IconBtn from '../components/IconBtn';
+import ModalFooter from '../components/ModalFooter';
 import type { CardSummary, Kb, Tag as TagT } from '../types';
 
 export default function KbDetail() {
@@ -67,19 +71,18 @@ export default function KbDetail() {
   return (
     <div className="page">
       <Space style={{ marginBottom: 12 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => nav('/')}>
-          返回
-        </Button>
+        <IconBtn tip="返回" icon={<ArrowLeftOutlined />} onClick={() => nav('/')} />
         <Typography.Title level={4} style={{ margin: 0 }}>
           {kb?.name}
         </Typography.Title>
+        {kb?.description && <Hint text={kb.description} />}
       </Space>
-      <Typography.Paragraph type="secondary">{kb?.description}</Typography.Paragraph>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, gap: 12 }}>
         <div>
-          <span style={{ marginRight: 8 }}>标签筛选(同时满足):</span>
-          {tags.length === 0 && <Typography.Text type="secondary">暂无标签,编辑卡片时可创建</Typography.Text>}
+          <span style={{ marginRight: 8 }}>
+            <Hint text={tags.length === 0 ? '暂无标签,编辑卡片时可创建' : '标签筛选(同时满足):勾选多个标签只显示同时具备的卡片;右键标签可改名/改色/删除'} />
+          </span>
           {tags.map((t) => (
             <Tag.CheckableTag key={t.id} checked={selected.includes(t.id)} onChange={() => toggle(t.id)}
               onContextMenu={(e) => { e.preventDefault(); setTagEdit(t); form.setFieldsValue({ name: t.name, color: t.color }); }}
@@ -87,20 +90,15 @@ export default function KbDetail() {
               {t.name} ({t.cardCount})
             </Tag.CheckableTag>
           ))}
-          {tags.length > 0 && <Typography.Text type="secondary" style={{ marginLeft: 8 }}>右键标签可改名/改色/删除</Typography.Text>}
         </div>
         <Space>
-          <Button icon={<ApartmentOutlined />} onClick={() => nav(`/kb/${kbId}/graph`)}>
-            知识地图
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => nav(`/kb/${kbId}/card/new`)}>
-            新建卡片
-          </Button>
+          <IconBtn tip="知识地图" icon={<ApartmentOutlined />} onClick={() => nav(`/kb/${kbId}/graph`)} />
+          <IconBtn tip="新建卡片" type="primary" icon={<PlusOutlined />} onClick={() => nav(`/kb/${kbId}/card/new`)} />
         </Space>
       </div>
 
       {cards.length === 0 ? (
-        <Empty description="没有卡片" />
+        <EmptyHint text="没有卡片,点击右上角加号新建" />
       ) : (
         <Space direction="vertical" style={{ width: '100%' }}>
           {cards.map((c) => (
@@ -127,17 +125,17 @@ export default function KbDetail() {
         onCancel={() => setTagEdit(null)}
         destroyOnClose
         forceRender
-        footer={(_, { OkBtn, CancelBtn }) => (
-          <>
-            <Popconfirm title="删除该标签?卡片不会被删除" onConfirm={delTag}>
-              <Button danger style={{ float: 'left' }}>
-                删除
-              </Button>
-            </Popconfirm>
-            <CancelBtn />
-            <OkBtn />
-          </>
-        )}
+        footer={
+          <ModalFooter
+            onOk={saveTag}
+            onCancel={() => setTagEdit(null)}
+            extra={
+              <Confirm title="删除该标签?卡片不会被删除" onConfirm={delTag}>
+                <IconBtn tip="删除标签" danger icon={<DeleteOutlined />} />
+              </Confirm>
+            }
+          />
+        }
       >
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true }]}>

@@ -1,8 +1,9 @@
-import { Button, Layout } from 'antd';
+import { Layout } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useEffect, useState } from 'react';
 import { Route, Routes, useNavigate } from 'react-router-dom';
 import GlobalSearch from './components/GlobalSearch';
+import IconBtn from './components/IconBtn';
 import CardEditor from './pages/CardEditor';
 import GraphView from './pages/GraphView';
 import KbDetail from './pages/KbDetail';
@@ -31,9 +32,7 @@ export default function App() {
           知识库
         </span>
         <div style={{ flex: 1 }} />
-        <Button icon={<SearchOutlined />} onClick={() => setSearchOpen(true)}>
-          全局搜索 (Ctrl+K)
-        </Button>
+        <IconBtn tip="全局搜索 (Ctrl+K)" icon={<SearchOutlined />} onClick={() => setSearchOpen(true)} />
       </Layout.Header>
       <Layout.Content>
         <Routes>

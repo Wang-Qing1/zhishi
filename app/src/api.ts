@@ -32,6 +32,10 @@ export const api = {
   graphGet: (kbId: number, focusCardId: number | null, depth: number) =>
     invoke<Graph>('graph_get', { kbId, focusCardId, depth }),
 
+  graphSavePositions: (items: { cardId: number; x: number; y: number }[]) =>
+    invoke<void>('graph_save_positions', { items }),
+  graphResetPositions: (kbId: number) => invoke<void>('graph_reset_positions', { kbId }),
+
   search: (query: string, kbId: number | null = null, tagIds: number[] = [], limit = 50) =>
     invoke<SearchHit[]>('search_global', { query, kbId, tagIds, limit }),
 };

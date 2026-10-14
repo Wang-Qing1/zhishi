@@ -62,6 +62,9 @@ pub struct Link {
 pub struct GraphNode {
     pub id: i64,
     pub title: String,
+    /// 已保存的画布位置,空表示尚未拖动/布局过
+    pub x: Option<f64>,
+    pub y: Option<f64>,
     pub tags: Vec<Tag>,
 }
 

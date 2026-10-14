@@ -111,3 +111,26 @@ fn graph_focus_depth() {
     let g2 = graph::get_graph(&conn, k, Some(ids[1]), 2).unwrap();
     assert_eq!((g2.nodes.len(), g2.edges.len()), (4, 3));
 }
+
+#[test]
+fn graph_positions_saved_and_reset() {
+    let conn = setup();
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let a = mk_card(&conn, k, "A", "", &[]);
+    let b = mk_card(&conn, k, "B", "", &[]);
+    assert!(graph::get_graph(&conn, k, None, 0).unwrap().nodes.iter().all(|n| n.x.is_none()));
+    graph::save_positions(&conn, &[(a, 10.5, 20.0), (b, -3.0, 4.0)]).unwrap();
+    // 再次保存覆盖
+    graph::save_positions(&conn, &[(a, 99.0, 1.0)]).unwrap();
+    let g = graph::get_graph(&conn, k, None, 0).unwrap();
+    let na = g.nodes.iter().find(|n| n.id == a).unwrap();
+    assert_eq!((na.x, na.y), (Some(99.0), Some(1.0)));
+    assert!(graph::save_positions(&conn, &[(9999, 0.0, 0.0)]).is_err());
+    graph::reset_positions(&conn, k).unwrap();
+    assert!(graph::get_graph(&conn, k, None, 0).unwrap().nodes.iter().all(|n| n.x.is_none()));
+    // 删除卡片级联删除位置
+    graph::save_positions(&conn, &[(b, 1.0, 1.0)]).unwrap();
+    card::delete(&conn, b).unwrap();
+    let n: i64 = conn.query_row("SELECT COUNT(*) FROM card_position", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 0);
+}
