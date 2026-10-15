@@ -44,6 +44,7 @@ body { background: #f5f6f8; }
 .tiptap pre code { background: none; padding: 0; }
 
 .graph-wrap { height: calc(100vh - 150px); background: #fff; border: 1px solid #eee; border-radius: 16px; overflow: hidden; }
+.graph-wrap .react-flow__pane { cursor: move !important; }
 
 .link-panel-item { flex-wrap: wrap; min-width: 0; }
 .link-panel-item .ant-list-item-action { flex: none; margin-inline-start: auto; }
