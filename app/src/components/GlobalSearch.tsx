@@ -1,12 +1,13 @@
-import { Input, List, Modal, Tag, Typography } from 'antd';
+import { App, Input, List, Modal, Tag, Typography } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api';
+import { api, errMsg } from '../api';
 import type { SearchHit } from '../types';
 import { EmptyHint } from './Hint';
 import Highlight from './Highlight';
 
 export default function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { message } = App.useApp();
   const nav = useNavigate();
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -14,8 +15,8 @@ export default function GlobalSearch({ open, onClose }: { open: boolean; onClose
 
   // 防抖 + 丢弃过期响应
   useEffect(() => {
-    if (!open) return;
     const my = ++seq.current;
+    if (!open) return;
     const t = setTimeout(async () => {
       if (!q.trim()) {
         setHits([]);
@@ -24,12 +25,15 @@ export default function GlobalSearch({ open, onClose }: { open: boolean; onClose
       try {
         const r = await api.search(q);
         if (my === seq.current) setHits(r);
-      } catch {
-        if (my === seq.current) setHits([]);
+      } catch (e) {
+        if (my === seq.current) {
+          setHits([]);
+          message.error(errMsg(e));
+        }
       }
     }, 250);
     return () => clearTimeout(t);
-  }, [q, open]);
+  }, [q, open, message]);
 
   const go = (h: SearchHit) => {
     onClose();
@@ -44,7 +48,7 @@ export default function GlobalSearch({ open, onClose }: { open: boolean; onClose
         placeholder="搜索标题、正文、标签(多个词用空格分隔)"
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        onSearch={(v) => v && go(hits[0])}
+        onSearch={(v) => v && hits[0] && go(hits[0])}
       />
       <div style={{ maxHeight: 420, overflow: 'auto', marginTop: 12 }}>
         {hits.length === 0 ? (

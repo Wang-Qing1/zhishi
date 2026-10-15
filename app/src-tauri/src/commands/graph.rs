@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, params_from_iter, Connection};
 use serde::Deserialize;
 use tauri::State;
 
@@ -44,21 +44,44 @@ pub fn get_graph(conn: &Connection, kb_id: i64, focus: Option<i64>, depth: i64) 
         }
     };
 
-    let set: HashSet<i64> = ids.iter().copied().collect();
+    let total_cards: i64 = conn.query_row("SELECT COUNT(*) FROM card WHERE kb_id = ?1", [kb_id], |r| r.get(0))?;
+    let truncated = focus.is_none() && total_cards > MAX_NODES;
     let mut nodes = Vec::with_capacity(ids.len());
-    for id in ids {
-        let row = conn.query_row(
-            "SELECT c.title, p.x, p.y FROM card c LEFT JOIN card_position p ON p.card_id = c.id
-             WHERE c.id = ?1 AND c.kb_id = ?2",
-            [id, kb_id],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<f64>>(1)?, r.get::<_, Option<f64>>(2)?)),
+    if !ids.is_empty() {
+        let id_params = (2..=ids.len() + 1).map(|i| format!("?{i}")).collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "SELECT c.id, c.title, p.x, p.y FROM card c
+             LEFT JOIN card_position p ON p.card_id = c.id
+             WHERE c.kb_id = ?1 AND c.id IN ({id_params})"
         );
-        if let Ok((title, x, y)) = row {
-            nodes.push(GraphNode { id, title, x, y, tags: tag::of_card(conn, id)? });
+        let mut values = Vec::with_capacity(ids.len() + 1);
+        values.push(kb_id);
+        values.extend(ids.iter().copied());
+        let mut st = conn.prepare(&sql)?;
+        let rows = st.query_map(params_from_iter(values.iter()), |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<f64>>(2)?,
+                r.get::<_, Option<f64>>(3)?,
+            ))
+        })?;
+        let found = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        let valid_ids: Vec<i64> = found.iter().map(|(id, _, _, _)| *id).collect();
+        let card_tags = tag::of_cards(conn, &valid_ids)?;
+        for (id, title, x, y) in found {
+            nodes.push(GraphNode {
+                id,
+                title,
+                x,
+                y,
+                tags: card_tags.get(&id).cloned().unwrap_or_default(),
+            });
         }
     }
-    let edges: Vec<Link> = all_links.into_iter().filter(|l| set.contains(&l.src_id) && set.contains(&l.dst_id)).collect();
-    Ok(Graph { nodes, edges })
+    let valid: HashSet<i64> = nodes.iter().map(|n| n.id).collect();
+    let edges: Vec<Link> = all_links.into_iter().filter(|l| valid.contains(&l.src_id) && valid.contains(&l.dst_id)).collect();
+    Ok(Graph { nodes, edges, truncated })
 }
 
 /// 保存卡片在地图上的位置(存在则覆盖)

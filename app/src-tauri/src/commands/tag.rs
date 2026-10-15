@@ -1,4 +1,6 @@
-use rusqlite::{params, Connection};
+use std::collections::HashMap;
+
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use tauri::State;
 
 use crate::commands::card::reindex;
@@ -7,7 +9,17 @@ use crate::error::{AppError, Result};
 use crate::models::Tag;
 
 fn row(r: &rusqlite::Row) -> rusqlite::Result<Tag> {
-    Ok(Tag { id: r.get(0)?, kb_id: r.get(1)?, name: r.get(2)?, color: r.get(3)?, card_count: r.get(4)? })
+    row_offset(r, 0)
+}
+
+fn row_offset(r: &rusqlite::Row, offset: usize) -> rusqlite::Result<Tag> {
+    Ok(Tag {
+        id: r.get(offset)?,
+        kb_id: r.get(offset + 1)?,
+        name: r.get(offset + 2)?,
+        color: r.get(offset + 3)?,
+        card_count: r.get(offset + 4)?,
+    })
 }
 
 /// 知识库内所有标签(含使用次数)
@@ -21,12 +33,29 @@ pub fn list(conn: &Connection, kb_id: i64) -> Result<Vec<Tag>> {
 }
 
 pub fn of_card(conn: &Connection, card_id: i64) -> Result<Vec<Tag>> {
-    let mut st = conn.prepare(
-        "SELECT t.id, t.kb_id, t.name, t.color, 0 FROM tag t
-         JOIN card_tag ct ON ct.tag_id = t.id WHERE ct.card_id = ?1 ORDER BY t.name",
-    )?;
-    let rows = st.query_map([card_id], row)?.collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows)
+    Ok(of_cards(conn, &[card_id])?.remove(&card_id).unwrap_or_default())
+}
+
+/// Batch-load tags for cards to avoid one query per card.
+pub fn of_cards(conn: &Connection, card_ids: &[i64]) -> Result<HashMap<i64, Vec<Tag>>> {
+    let mut tags = HashMap::new();
+    if card_ids.is_empty() {
+        return Ok(tags);
+    }
+
+    let placeholders = (1..=card_ids.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT ct.card_id, t.id, t.kb_id, t.name, t.color, 0 FROM tag t
+         JOIN card_tag ct ON ct.tag_id = t.id
+         WHERE ct.card_id IN ({placeholders}) ORDER BY t.name"
+    );
+    let mut st = conn.prepare(&sql)?;
+    let mut rows = st.query(params_from_iter(card_ids.iter()))?;
+    while let Some(r) = rows.next()? {
+        let card_id: i64 = r.get(0)?;
+        tags.entry(card_id).or_insert_with(Vec::new).push(row_offset(r, 1)?);
+    }
+    Ok(tags)
 }
 
 fn get(conn: &Connection, id: i64) -> Result<Tag> {
@@ -35,7 +64,8 @@ fn get(conn: &Connection, id: i64) -> Result<Tag> {
         [id],
         row,
     )
-    .map_err(|_| AppError::NotFound(format!("标签 {id}")))
+    .optional()?
+    .ok_or_else(|| AppError::NotFound(format!("标签 {id}")))
 }
 
 fn check_name(name: &str) -> Result<String> {

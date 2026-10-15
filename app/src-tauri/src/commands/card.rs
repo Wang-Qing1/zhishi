@@ -4,7 +4,7 @@ use tauri::State;
 use crate::commands::tag;
 use crate::db::{now_ms, Db};
 use crate::error::{AppError, Result};
-use crate::models::{Card, CardSummary};
+use crate::models::{Card, CardPage, CardSummary};
 
 fn norm_title(t: &str) -> String {
     let t = t.trim();
@@ -120,10 +120,63 @@ pub fn list(conn: &Connection, kb_id: i64, tag_ids: &[i64], offset: i64, limit: 
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let tags = tag::of_cards(conn, &rows.iter().map(|c| c.id).collect::<Vec<_>>())?;
     for c in rows.iter_mut() {
-        c.tags = tag::of_card(conn, c.id)?;
+        c.tags = tags.get(&c.id).cloned().unwrap_or_default();
     }
     Ok(rows)
+}
+
+/// Paginated card list with optional title substring search and OR tag filtering.
+pub fn list_page(
+    conn: &Connection,
+    kb_id: i64,
+    tag_ids: &[i64],
+    keyword: &str,
+    offset: i64,
+    limit: i64,
+) -> Result<CardPage> {
+    let keyword = keyword.trim();
+    let escaped = keyword.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+    let pattern = format!("%{escaped}%");
+    let filters = tag::filter_sql(tag_ids);
+    let total = conn.query_row(
+        &format!(
+            "SELECT COUNT(*) FROM card c
+             WHERE c.kb_id = ?1 AND (?2 = '' OR c.title LIKE ?3 ESCAPE '\\'){filters}"
+        ),
+        params![kb_id, keyword, pattern],
+        |r| r.get(0),
+    )?;
+    let mut st = conn.prepare(&format!(
+        "SELECT c.id, c.kb_id, c.title, substr(c.content_text, 1, 120), c.updated_at FROM card c
+         WHERE c.kb_id = ?1 AND (?2 = '' OR c.title LIKE ?3 ESCAPE '\\'){filters}
+         ORDER BY c.updated_at DESC, c.id DESC LIMIT ?4 OFFSET ?5"
+    ))?;
+    let mut items = st
+        .query_map(
+            params![kb_id, keyword, pattern, limit.clamp(1, 100), offset.max(0)],
+            |r| {
+                Ok(CardSummary {
+                    id: r.get(0)?,
+                    kb_id: r.get(1)?,
+                    title: r.get(2)?,
+                    excerpt: r.get(3)?,
+                    updated_at: r.get(4)?,
+                    tags: vec![],
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let tags = tag::of_cards(conn, &items.iter().map(|c| c.id).collect::<Vec<_>>())?;
+    for item in items.iter_mut() {
+        item.tags = tags.get(&item.id).cloned().unwrap_or_default();
+    }
+    Ok(CardPage { items, total })
+}
+
+pub fn search_titles(conn: &Connection, kb_id: i64, query: &str) -> Result<Vec<CardSummary>> {
+    Ok(list_page(conn, kb_id, &[], query, 0, 50)?.items)
 }
 
 #[tauri::command]
@@ -168,4 +221,23 @@ pub fn card_delete(db: State<Db>, id: i64) -> Result<()> {
 pub fn card_list(db: State<Db>, kb_id: i64, tag_ids: Vec<i64>, offset: i64, limit: i64) -> Result<Vec<CardSummary>> {
     let conn = db.conn()?;
     list(&conn, kb_id, &tag_ids, offset, limit)
+}
+
+#[tauri::command]
+pub fn card_list_page(
+    db: State<Db>,
+    kb_id: i64,
+    tag_ids: Vec<i64>,
+    keyword: String,
+    offset: i64,
+    limit: i64,
+) -> Result<CardPage> {
+    let conn = db.conn()?;
+    list_page(&conn, kb_id, &tag_ids, &keyword, offset, limit)
+}
+
+#[tauri::command]
+pub fn card_search_titles(db: State<Db>, kb_id: i64, query: String) -> Result<Vec<CardSummary>> {
+    let conn = db.conn()?;
+    search_titles(&conn, kb_id, &query)
 }

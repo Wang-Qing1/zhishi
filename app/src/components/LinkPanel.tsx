@@ -1,6 +1,6 @@
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { App, Input, List, Select, Tag } from 'antd';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { api, errMsg } from '../api';
 import Confirm from './Confirm';
@@ -13,18 +13,38 @@ export default function LinkPanel({ kbId, cardId }: { kbId: number; cardId: numb
   const { message } = App.useApp();
   const [links, setLinks] = useState<Link[]>([]);
   const [cards, setCards] = useState<CardSummary[]>([]);
+  const [cardQuery, setCardQuery] = useState('');
   const [dst, setDst] = useState<number>();
   const [type, setType] = useState('related');
   const [note, setNote] = useState('');
+  const searchSeq = useRef(0);
 
   const reload = useCallback(async () => {
     setLinks(await api.linkListByCard(cardId));
   }, [cardId]);
 
   useEffect(() => {
+    setDst(undefined);
+    setNote('');
+    setCardQuery('');
     reload().catch((e) => message.error(errMsg(e)));
-    api.cardList(kbId, [], 0, 1000).then((cs) => setCards(cs.filter((c) => c.id !== cardId)));
   }, [kbId, cardId, reload, message]);
+
+  useEffect(() => {
+    const seq = ++searchSeq.current;
+    setCards([]);
+    const timer = window.setTimeout(() => {
+      api.cardSearchTitles(kbId, cardQuery).then((cs) => {
+        if (seq === searchSeq.current) setCards(cs.filter((c) => c.id !== cardId));
+      }).catch((e) => {
+        if (seq === searchSeq.current) message.error(errMsg(e));
+      });
+    }, 200);
+    return () => {
+      window.clearTimeout(timer);
+      searchSeq.current += 1;
+    };
+  }, [kbId, cardId, cardQuery, message]);
 
   const add = async () => {
     if (!dst) return;
@@ -44,11 +64,13 @@ export default function LinkPanel({ kbId, cardId }: { kbId: number; cardId: numb
         <Select style={{ width: 90 }} value={type} onChange={setType} options={RELATION_TYPES} />
         <Select
           showSearch
+          filterOption={false}
           style={{ flex: 1 }}
-          placeholder="选择要关联的卡片"
+          placeholder="搜索并选择关联卡片"
           value={dst}
+          searchValue={cardQuery}
+          onSearch={setCardQuery}
           onChange={setDst}
-          optionFilterProp="label"
           options={cards.map((c) => ({ value: c.id, label: c.title }))}
         />
         <IconBtn tip="添加关联" type="primary" icon={<PlusOutlined />} disabled={!dst} onClick={add} />
@@ -64,6 +86,7 @@ export default function LinkPanel({ kbId, cardId }: { kbId: number; cardId: numb
           const otherTitle = out ? l.dstTitle : l.srcTitle;
           return (
             <List.Item
+              className="link-panel-item"
               actions={[
                 <Confirm key="d" title="删除该关联?" onConfirm={() => api.linkDelete(l.id).then(reload)}>
                   <IconBtn tip="删除关联" size="small" danger icon={<DeleteOutlined />} />
@@ -71,8 +94,8 @@ export default function LinkPanel({ kbId, cardId }: { kbId: number; cardId: numb
               ]}
             >
               <Tag>{out ? '→' : '←'} {relationLabel(l.relationType)}</Tag>
-              <RouterLink to={`/kb/${kbId}/card/${otherId}`}>{otherTitle}</RouterLink>
-              {l.note && <span style={{ color: '#999', marginLeft: 8 }}>{l.note}</span>}
+              <RouterLink className="link-panel-title" to={`/kb/${kbId}/card/${otherId}`}>{otherTitle}</RouterLink>
+              {l.note && <span className="link-panel-note">{l.note}</span>}
             </List.Item>
           );
         }}

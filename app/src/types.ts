@@ -34,6 +34,11 @@ export interface CardSummary {
   tags: Tag[];
 }
 
+export interface CardPage {
+  items: CardSummary[];
+  total: number;
+}
+
 export interface Link {
   id: number;
   kbId: number;
@@ -57,6 +62,7 @@ export interface GraphNode {
 export interface Graph {
   nodes: GraphNode[];
   edges: Link[];
+  truncated: boolean;
 }
 
 export interface SearchHit {

@@ -68,8 +68,10 @@ pub fn search(conn: &Connection, query: &str, kb_id: Option<i64>, tag_ids: &[i64
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let card_ids: Vec<i64> = hits.iter().map(|h| h.card_id).collect();
+    let tags = tag::of_cards(conn, &card_ids)?;
     for h in hits.iter_mut() {
-        h.tags = tag::of_card(conn, h.card_id)?;
+        h.tags = tags.get(&h.card_id).cloned().unwrap_or_default();
     }
     Ok(hits)
 }

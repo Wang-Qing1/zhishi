@@ -46,6 +46,13 @@ pub struct CardSummary {
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct CardPage {
+    pub items: Vec<CardSummary>,
+    pub total: i64,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct Link {
     pub id: i64,
     pub kb_id: i64,
@@ -73,6 +80,7 @@ pub struct GraphNode {
 pub struct Graph {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<Link>,
+    pub truncated: bool,
 }
 
 /// snippet 中命中部分以 \u{1} ... \u{2} 包裹,由前端安全高亮(避免注入 HTML)

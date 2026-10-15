@@ -110,9 +110,9 @@ export default function CardEditor() {
         </Space>
       </div>
 
-      {/* 第一行:标题 : 标签 = 3 : 1 */}
+      {/* 第一行:标题 : 标签 = 2 : 1,与正文/关联区域对齐 */}
       <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col xs={24} lg={18}>
+        <Col xs={24} lg={16}>
           <Input
             size="large"
             placeholder="卡片标题"
@@ -124,7 +124,7 @@ export default function CardEditor() {
             }}
           />
         </Col>
-        <Col xs={24} lg={6} className="title-row">
+        <Col xs={24} lg={8} className="title-row">
           <TagSelector
             kbId={kbId}
             allTags={allTags}
@@ -139,9 +139,9 @@ export default function CardEditor() {
         </Col>
       </Row>
 
-      {/* 第二行:正文 : 关联卡片 = 3 : 1,等高并占满剩余视窗高度 */}
+      {/* 第二行:正文 : 关联卡片 = 2 : 1,为关联列表留出足够宽度 */}
       <Row gutter={16} style={{ flex: 1, minHeight: 360 }}>
-        <Col xs={24} lg={18} className="fill" style={{ height: '100%' }}>
+        <Col xs={24} lg={16} className="fill" style={{ height: '100%' }}>
           {initial !== null && (
             <RichEditor
               key={cardId ?? 'new'}
@@ -156,7 +156,7 @@ export default function CardEditor() {
             />
           )}
         </Col>
-        <Col xs={24} lg={6} style={{ height: '100%' }}>
+        <Col xs={24} lg={8} style={{ height: '100%', minWidth: 0 }}>
           <Card
             size="small"
             title="关联卡片"

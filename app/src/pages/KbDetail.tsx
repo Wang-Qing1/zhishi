@@ -1,5 +1,5 @@
 import { ApartmentOutlined, ArrowLeftOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { App, Card, Col, ColorPicker, Form, Input, Modal, Row, Select, Space, Tag, Typography } from 'antd';
+import { App, Card, Col, ColorPicker, Form, Input, Modal, Pagination, Row, Select, Space, Tag, Typography } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, errMsg } from '../api';
@@ -9,16 +9,22 @@ import IconBtn from '../components/IconBtn';
 import ModalFooter from '../components/ModalFooter';
 import type { CardSummary, Kb, Tag as TagT } from '../types';
 
+const PAGE_SIZE = 24;
+
 export default function KbDetail() {
   const kbId = Number(useParams().kbId);
   const { message } = App.useApp();
   const nav = useNavigate();
   const [kb, setKb] = useState<Kb>();
   const [cards, setCards] = useState<CardSummary[]>([]);
+  const [total, setTotal] = useState(0);
   const [tags, setTags] = useState<TagT[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
   const [tagEdit, setTagEdit] = useState<TagT | null>(null);
   const [keyword, setKeyword] = useState('');
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [revision, setRevision] = useState(0);
   const [form] = Form.useForm();
 
   const loadMeta = useCallback(async () => {
@@ -31,29 +37,50 @@ export default function KbDetail() {
     }
   }, [kbId, message]);
 
-  const loadCards = useCallback(
-    () => api.cardList(kbId, selected).then(setCards).catch((e) => message.error(errMsg(e))),
-    [kbId, selected, message],
-  );
-
   useEffect(() => {
     loadMeta();
   }, [loadMeta]);
   useEffect(() => {
-    loadCards();
-  }, [loadCards]);
-
-  const kw = keyword.trim().toLowerCase();
-  const shown = kw ? cards.filter((c) => c.title.toLowerCase().includes(kw)) : cards;
+    const timer = window.setTimeout(() => setQuery(keyword.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [keyword]);
+  useEffect(() => {
+    setPage(1);
+  }, [keyword, selected]);
+  useEffect(() => {
+    let active = true;
+    api.cardListPage(kbId, selected, query, (page - 1) * PAGE_SIZE, PAGE_SIZE)
+      .then((result) => {
+        if (!active) return;
+        setCards(result.items);
+        setTotal(result.total);
+      })
+      .catch((e) => {
+        if (active) {
+          setCards([]);
+          setTotal(0);
+          message.error(errMsg(e));
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [kbId, selected, query, page, revision, message]);
+  useEffect(() => {
+    setSelected([]);
+    setKeyword('');
+    setQuery('');
+    setPage(1);
+  }, [kbId]);
 
   const saveTag = async () => {
-    const v = await form.validateFields();
-    const color = typeof v.color === 'string' ? v.color : v.color.toHexString();
     try {
+      const v = await form.validateFields();
+      const color = typeof v.color === 'string' ? v.color : v.color.toHexString();
       await api.tagUpdate(tagEdit!.id, v.name, color);
       setTagEdit(null);
       loadMeta();
-      loadCards();
+      setRevision((n) => n + 1);
     } catch (e) {
       message.error(errMsg(e));
     }
@@ -62,7 +89,8 @@ export default function KbDetail() {
   const delCard = async (id: number) => {
     try {
       await api.cardDelete(id);
-      loadCards();
+      if (cards.length === 1 && page > 1) setPage((current) => current - 1);
+      setRevision((n) => n + 1);
       loadMeta();
     } catch (e) {
       message.error(errMsg(e));
@@ -75,6 +103,7 @@ export default function KbDetail() {
       setSelected((s) => s.filter((x) => x !== tagEdit!.id));
       setTagEdit(null);
       loadMeta();
+      setRevision((n) => n + 1);
     } catch (e) {
       message.error(errMsg(e));
     }
@@ -132,13 +161,11 @@ export default function KbDetail() {
         </Space>
       </div>
 
-      {cards.length === 0 ? (
-        <EmptyHint text="没有卡片,点击右上角加号新建" />
-      ) : shown.length === 0 ? (
-        <EmptyHint text="没有匹配的卡片" />
+      {total === 0 ? (
+        <EmptyHint text={query || selected.length ? '当前筛选没有匹配的卡片' : '没有卡片,点击右上角加号新建'} />
       ) : (
         <Row gutter={[16, 16]}>
-          {shown.map((c) => (
+          {cards.map((c) => (
             <Col key={c.id} xs={24} sm={12} lg={8} xl={6}>
               <Card
                 hoverable
@@ -174,6 +201,16 @@ export default function KbDetail() {
             </Col>
           ))}
         </Row>
+      )}
+      {total > PAGE_SIZE && (
+        <Pagination
+          current={page}
+          pageSize={PAGE_SIZE}
+          total={total}
+          onChange={setPage}
+          showSizeChanger={false}
+          style={{ marginTop: 20, textAlign: 'right' }}
+        />
       )}
 
       <Modal

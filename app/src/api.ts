@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Card, CardSummary, Graph, Kb, Link, SearchHit, Tag } from './types';
+import type { Card, CardPage, CardSummary, Graph, Kb, Link, SearchHit, Tag } from './types';
 
 // 参数用 camelCase,Tauri 自动映射到 Rust 的 snake_case
 export const api = {
@@ -12,6 +12,10 @@ export const api = {
 
   cardList: (kbId: number, tagIds: number[] = [], offset = 0, limit = 200) =>
     invoke<CardSummary[]>('card_list', { kbId, tagIds, offset, limit }),
+  cardListPage: (kbId: number, tagIds: number[], keyword: string, offset: number, limit: number) =>
+    invoke<CardPage>('card_list_page', { kbId, tagIds, keyword, offset, limit }),
+  cardSearchTitles: (kbId: number, query: string) =>
+    invoke<CardSummary[]>('card_search_titles', { kbId, query }),
   cardGet: (id: number) => invoke<Card>('card_get', { id }),
   cardCreate: (kbId: number, title: string, contentJson: string, contentText: string, tagIds: number[]) =>
     invoke<Card>('card_create', { kbId, title, contentJson, contentText, tagIds }),

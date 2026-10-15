@@ -70,6 +70,30 @@ fn tags_filter_and_reindex() {
 }
 
 #[test]
+fn paged_card_list_filters_title_and_or_tags() {
+    let conn = setup();
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let backend = tag::create(&conn, k, "后端", "#f00").unwrap().id;
+    let storage = tag::create(&conn, k, "存储", "#0f0").unwrap().id;
+    mk_card(&conn, k, "Rust 数据库", "SQLite", &[backend]);
+    mk_card(&conn, k, "Rust 服务", "API", &[storage]);
+    mk_card(&conn, k, "Python", "脚本", &[]);
+
+    let page = card::list_page(&conn, k, &[backend, storage], "Rust", 0, 1).unwrap();
+    assert_eq!(page.total, 2);
+    assert_eq!(page.items.len(), 1);
+    assert!(page.items[0].title.starts_with("Rust"));
+
+    let second = card::list_page(&conn, k, &[backend, storage], "Rust", 1, 1).unwrap();
+    assert_eq!(second.total, 2);
+    assert_eq!(second.items.len(), 1);
+    assert_ne!(page.items[0].id, second.items[0].id);
+
+    let escaped = card::list_page(&conn, k, &[], "%", 0, 24).unwrap();
+    assert_eq!(escaped.total, 0);
+}
+
+#[test]
 fn link_constraints_and_cascade() {
     let conn = setup();
     let k = kb::create(&conn, "k", "").unwrap().id;

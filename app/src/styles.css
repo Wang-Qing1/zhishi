@@ -44,3 +44,8 @@ body { background: #f5f6f8; }
 .tiptap pre code { background: none; padding: 0; }
 
 .graph-wrap { height: calc(100vh - 150px); background: #fff; border: 1px solid #eee; border-radius: 16px; overflow: hidden; }
+
+.link-panel-item { flex-wrap: wrap; min-width: 0; }
+.link-panel-item .ant-list-item-action { flex: none; margin-inline-start: auto; }
+.link-panel-title { min-width: 0; overflow-wrap: anywhere; }
+.link-panel-note { min-width: 0; margin-left: 8px; color: #999; overflow-wrap: anywhere; }

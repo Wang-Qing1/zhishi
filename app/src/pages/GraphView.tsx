@@ -26,7 +26,7 @@ import '@xyflow/react/dist/style.css';
 import { App, Dropdown, InputNumber, Modal, Select, Space, Typography } from 'antd';
 import type { MenuProps } from 'antd';
 import dagre from 'dagre';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, errMsg } from '../api';
 import Confirm from '../components/Confirm';
@@ -120,6 +120,7 @@ function Inner() {
   const [pending, setPending] = useState<Connection | null>(null);
   const [relType, setRelType] = useState('related');
   const [count, setCount] = useState(0);
+  const [truncated, setTruncated] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
   const [graph, setGraph] = useState<Graph | null>(null);
   // 右键菜单(屏幕坐标 + 节点 id)与“添加关联”弹窗
@@ -127,6 +128,8 @@ function Inner() {
   const [addFrom, setAddFrom] = useState<number | null>(null);
   const [addTo, setAddTo] = useState<number>();
   const [cardOpts, setCardOpts] = useState<{ value: number; label: string }[]>([]);
+  const [cardQuery, setCardQuery] = useState('');
+  const searchSeq = useRef(0);
 
   const load = useCallback(async () => {
     try {
@@ -135,13 +138,14 @@ function Inner() {
       setNodes(l.nodes);
       setEdges(l.edges);
       setCount(g.nodes.length);
+      setTruncated(g.truncated);
       setGraph(g);
       // 全图模式下把自动布局的位置也保存,之后不再因为新增卡片/关联而跳动
       if (focus === null) {
         const missing = l.nodes
           .filter((_, i) => g.nodes[i].x == null)
           .map((n) => ({ cardId: Number(n.id), x: n.position.x, y: n.position.y }));
-        if (missing.length) api.graphSavePositions(missing).catch(() => {});
+        if (missing.length) api.graphSavePositions(missing).catch((e) => message.error(errMsg(e)));
       }
     } catch (e) {
       message.error(errMsg(e));
@@ -190,11 +194,27 @@ function Inner() {
     setAddFrom(id);
     setAddTo(undefined);
     setRelType('related');
-    api
-      .cardList(kbId, [], 0, 1000)
-      .then((cs) => setCardOpts(cs.filter((c) => c.id !== id).map((c) => ({ value: c.id, label: c.title }))))
-      .catch((e) => message.error(errMsg(e)));
+    setCardQuery('');
   };
+
+  useEffect(() => {
+    if (addFrom === null) return;
+    const seq = ++searchSeq.current;
+    setCardOpts([]);
+    const timer = window.setTimeout(() => {
+      api.cardSearchTitles(kbId, cardQuery).then((cs) => {
+        if (seq === searchSeq.current) {
+          setCardOpts(cs.filter((c) => c.id !== addFrom).map((c) => ({ value: c.id, label: c.title })));
+        }
+      }).catch((e) => {
+        if (seq === searchSeq.current) message.error(errMsg(e));
+      });
+    }, 200);
+    return () => {
+      window.clearTimeout(timer);
+      searchSeq.current += 1;
+    };
+  }, [kbId, addFrom, cardQuery, message]);
 
   const confirmAdd = async () => {
     if (addFrom === null || !addTo) return;
@@ -252,7 +272,12 @@ function Inner() {
         <Typography.Title level={4} style={{ margin: 0 }}>
           知识地图
         </Typography.Title>
-        <Hint text={`${focus ? '聚焦子图' : '全图'}(${count} 个节点) · 单击节点打开卡片 · 右键节点打开菜单(编辑、聚焦子图、添加/删除关联) · 拖动节点右侧圆点到另一节点建立关联 · 单击连线删除`} />
+        {truncated && (
+          <Typography.Text type="warning">
+            全图已达 1500 节点上限，仅显示最近更新的卡片
+          </Typography.Text>
+        )}
+        <Hint text={`${focus ? '聚焦子图' : '全图'}(${count} 个节点${truncated ? '，已达 1500 节点上限，仅显示最近更新的卡片' : ''}) · 单击节点打开卡片 · 右键节点打开菜单(编辑、聚焦子图、添加/删除关联) · 拖动节点右侧圆点到另一节点建立关联 · 单击连线删除`} />
       </Space>
       <Space wrap>
         <Confirm title="重新自动排列?已保存的手动位置将被清除" onConfirm={resetLayout}>
@@ -322,11 +347,13 @@ function Inner() {
           <Select style={{ width: '100%' }} value={relType} onChange={setRelType} options={RELATION_TYPES} />
           <Select
             showSearch
+            filterOption={false}
             style={{ width: '100%' }}
-            placeholder="选择要关联的卡片"
+            placeholder="搜索并选择要关联的卡片"
             value={addTo}
+            searchValue={cardQuery}
+            onSearch={setCardQuery}
             onChange={setAddTo}
-            optionFilterProp="label"
             options={cardOpts}
           />
         </Space>
