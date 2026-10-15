@@ -43,6 +43,54 @@ fn fts_chinese_and_short_terms() {
 }
 
 #[test]
+fn fts_mixed_long_and_short_terms() {
+    let conn = setup();
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    mk_card(&conn, k, "Rust 入门", "Rust 是一门系统编程语言", &[]);
+    mk_card(&conn, k, "Python", "脚本语言", &[]);
+    // 长词 + 短词:FTS 缩小范围后再用 LIKE 过滤短词,摘要带高亮
+    let hits = search::search(&conn, "系统编 语言", None, &[], 20).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert!(hits[0].snippet.contains('\u{1}'));
+    // 只含短词的 Python 卡片不应出现
+    let hits = search::search(&conn, "Rust 语言", None, &[], 20).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].title, "Rust 入门");
+    // 长词命中但短词不命中
+    assert!(search::search(&conn, "系统编 脚本", None, &[], 20).unwrap().is_empty());
+    // 全短词:多个词都高亮
+    let hits = search::search(&conn, "系统 语言", None, &[], 20).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].snippet.matches('\u{1}').count(), 2);
+}
+
+#[test]
+fn kb_search_by_name_and_description() {
+    let conn = setup();
+    let a = kb::create(&conn, "Rust 笔记", "系统编程").unwrap().id;
+    kb::create(&conn, "英语", "词汇与语法").unwrap();
+    mk_card(&conn, a, "无关标题", "", &[]);
+    assert_eq!(kb::search(&conn, "rust", 10).unwrap().len(), 1);
+    assert_eq!(kb::search(&conn, "语法", 10).unwrap().len(), 1);
+    assert_eq!(kb::search(&conn, "rust 编程", 10).unwrap().len(), 1);
+    assert!(kb::search(&conn, "rust 语法", 10).unwrap().is_empty());
+    assert!(kb::search(&conn, "%", 10).unwrap().is_empty());
+    assert!(kb::search(&conn, "  ", 10).unwrap().is_empty());
+    // 不会把卡片标题当成知识库结果
+    assert!(kb::search(&conn, "无关标题", 10).unwrap().is_empty());
+}
+
+#[test]
+fn fts_snippet_highlights_title_only_match() {
+    let conn = setup();
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    mk_card(&conn, k, "独特标题词", "完全无关的正文", &[]);
+    let hits = search::search(&conn, "独特标题", None, &[], 20).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert!(hits[0].snippet.contains('\u{1}'));
+}
+
+#[test]
 fn tags_filter_and_reindex() {
     let conn = setup();
     let k = kb::create(&conn, "k", "").unwrap().id;
@@ -51,11 +99,11 @@ fn tags_filter_and_reindex() {
     assert!(tag::create(&conn, k, "后端", "#fff").is_err());
     let c1 = mk_card(&conn, k, "c1", "x", &[a, b]);
     let _c2 = mk_card(&conn, k, "c2", "y", &[a]);
-    assert_eq!(card::list(&conn, k, &[a], 0, 50).unwrap().len(), 2);
+    assert_eq!(card::list_page(&conn, k, &[a], "", 0, 50).unwrap().items.len(), 2);
     // 多标签为 OR:具备任一标签即命中,且不重复
-    let any = card::list(&conn, k, &[a, b], 0, 50).unwrap();
+    let any = card::list_page(&conn, k, &[a, b], "", 0, 50).unwrap().items;
     assert_eq!(any.len(), 2);
-    let only_b = card::list(&conn, k, &[b], 0, 50).unwrap();
+    let only_b = card::list_page(&conn, k, &[b], "", 0, 50).unwrap().items;
     assert_eq!(only_b.len(), 1);
     assert_eq!(only_b[0].id, c1);
     assert_eq!(only_b[0].tags.len(), 2);
@@ -110,6 +158,26 @@ fn link_constraints_and_cascade() {
     // 删除卡片级联删除关联
     card::delete(&conn, a).unwrap();
     assert!(link::list_by_card(&conn, b).unwrap().is_empty());
+}
+
+#[test]
+fn kb_touched_on_card_delete_and_link_change() {
+    let conn = setup();
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let a = mk_card(&conn, k, "A", "", &[]);
+    let b = mk_card(&conn, k, "B", "", &[]);
+    let stamp = |conn: &Connection| kb::get(conn, k).unwrap().updated_at;
+    let reset = |conn: &Connection| conn.execute("UPDATE kb SET updated_at = 0", []).unwrap();
+
+    reset(&conn);
+    let l = link::create(&conn, a, b, "related", "").unwrap();
+    assert!(stamp(&conn) > 0);
+    reset(&conn);
+    link::delete(&conn, l.id).unwrap();
+    assert!(stamp(&conn) > 0);
+    reset(&conn);
+    card::delete(&conn, a).unwrap();
+    assert!(stamp(&conn) > 0);
 }
 
 #[test]

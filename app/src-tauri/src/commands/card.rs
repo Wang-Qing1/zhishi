@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use tauri::State;
 
-use crate::commands::tag;
+use crate::commands::{kb, tag};
 use crate::db::{now_ms, Db};
 use crate::error::{AppError, Result};
 use crate::models::{Card, CardPage, CardSummary};
@@ -22,6 +22,13 @@ pub fn reindex(conn: &Connection, card_id: i64) -> Result<()> {
         [card_id],
     )?;
     Ok(())
+}
+
+/// 只查卡片所属知识库(不读正文和标签);卡片不存在返回 None
+fn find_kb_id(conn: &Connection, id: i64) -> Result<Option<i64>> {
+    Ok(conn
+        .query_row("SELECT kb_id FROM card WHERE id = ?1", [id], |r| r.get(0))
+        .optional()?)
 }
 
 pub fn get(conn: &Connection, id: i64) -> Result<Card> {
@@ -78,7 +85,7 @@ pub fn update(
     content_text: &str,
     tag_ids: &[i64],
 ) -> Result<Card> {
-    let kb_id = get(conn, id)?.kb_id;
+    let kb_id = find_kb_id(conn, id)?.ok_or_else(|| AppError::NotFound(format!("卡片 {id}")))?;
     let tx = conn.unchecked_transaction()?;
     let now = now_ms();
     tx.execute(
@@ -93,38 +100,15 @@ pub fn update(
 }
 
 pub fn delete(conn: &Connection, id: i64) -> Result<()> {
+    let kb_id = find_kb_id(conn, id)?;
     let tx = conn.unchecked_transaction()?;
     tx.execute("DELETE FROM card_fts WHERE rowid = ?1", [id])?;
     tx.execute("DELETE FROM card WHERE id = ?1", [id])?;
+    if let Some(k) = kb_id {
+        kb::touch(&tx, k)?;
+    }
     tx.commit()?;
     Ok(())
-}
-
-/// 列表(不含正文 JSON);tag_ids 为 OR 过滤(具备任一标签即可)
-pub fn list(conn: &Connection, kb_id: i64, tag_ids: &[i64], offset: i64, limit: i64) -> Result<Vec<CardSummary>> {
-    let sql = format!(
-        "SELECT c.id, c.kb_id, c.title, substr(c.content_text, 1, 120), c.updated_at FROM card c
-         WHERE c.kb_id = ?1{} ORDER BY c.updated_at DESC, c.id DESC LIMIT ?2 OFFSET ?3",
-        tag::filter_sql(tag_ids)
-    );
-    let mut st = conn.prepare(&sql)?;
-    let mut rows = st
-        .query_map(params![kb_id, limit.clamp(1, 1000), offset.max(0)], |r| {
-            Ok(CardSummary {
-                id: r.get(0)?,
-                kb_id: r.get(1)?,
-                title: r.get(2)?,
-                excerpt: r.get(3)?,
-                updated_at: r.get(4)?,
-                tags: vec![],
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let tags = tag::of_cards(conn, &rows.iter().map(|c| c.id).collect::<Vec<_>>())?;
-    for c in rows.iter_mut() {
-        c.tags = tags.get(&c.id).cloned().unwrap_or_default();
-    }
-    Ok(rows)
 }
 
 /// Paginated card list with optional title substring search and OR tag filtering.
@@ -217,13 +201,7 @@ pub fn card_delete(db: State<Db>, id: i64) -> Result<()> {
     delete(&conn, id)
 }
 
-#[tauri::command]
-pub fn card_list(db: State<Db>, kb_id: i64, tag_ids: Vec<i64>, offset: i64, limit: i64) -> Result<Vec<CardSummary>> {
-    let conn = db.conn()?;
-    list(&conn, kb_id, &tag_ids, offset, limit)
-}
-
-#[tauri::command]
+#[tauri::command(async)]
 pub fn card_list_page(
     db: State<Db>,
     kb_id: i64,

@@ -129,7 +129,7 @@ pub fn graph_reset_positions(db: State<Db>, kb_id: i64) -> Result<()> {
     reset_positions(&conn, kb_id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn graph_get(db: State<Db>, kb_id: i64, focus_card_id: Option<i64>, depth: i64) -> Result<Graph> {
     let conn = db.conn()?;
     get_graph(&conn, kb_id, focus_card_id, depth)

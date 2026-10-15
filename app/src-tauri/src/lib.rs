@@ -25,6 +25,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             kb::kb_list,
             kb::kb_get,
+            kb::kb_search,
             kb::kb_create,
             kb::kb_update,
             kb::kb_delete,
@@ -32,7 +33,6 @@ pub fn run() {
             card::card_create,
             card::card_update,
             card::card_delete,
-            card::card_list,
             card::card_list_page,
             card::card_search_titles,
             tag::tag_list,

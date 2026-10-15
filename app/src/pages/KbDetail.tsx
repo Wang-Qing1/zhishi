@@ -25,6 +25,8 @@ export default function KbDetail() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
+  // 首次列表请求完成前不显示空状态提示
+  const [loaded, setLoaded] = useState(false);
   const [form] = Form.useForm();
 
   const loadMeta = useCallback(async () => {
@@ -54,11 +56,13 @@ export default function KbDetail() {
         if (!active) return;
         setCards(result.items);
         setTotal(result.total);
+        setLoaded(true);
       })
       .catch((e) => {
         if (active) {
           setCards([]);
           setTotal(0);
+          setLoaded(true);
           message.error(errMsg(e));
         }
       });
@@ -67,6 +71,7 @@ export default function KbDetail() {
     };
   }, [kbId, selected, query, page, revision, message]);
   useEffect(() => {
+    setLoaded(false);
     setSelected([]);
     setKeyword('');
     setQuery('');
@@ -122,11 +127,11 @@ export default function KbDetail() {
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
           <Input
-              allowClear
-              placeholder="按名称搜索卡片"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              style={{ width: 220 }}
+            allowClear
+            placeholder="按名称搜索卡片"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            style={{ width: 220 }}
           />
           <Select
             mode="multiple"
@@ -161,7 +166,7 @@ export default function KbDetail() {
         </Space>
       </div>
 
-      {total === 0 ? (
+      {!loaded ? null : total === 0 ? (
         <EmptyHint text={query || selected.length ? '当前筛选没有匹配的卡片' : '没有卡片,点击右上角加号新建'} />
       ) : (
         <Row gutter={[16, 16]}>

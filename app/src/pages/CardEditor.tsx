@@ -10,6 +10,7 @@ import ModalFooter from '../components/ModalFooter';
 import RichEditor from '../components/RichEditor';
 import TagSelector from '../components/TagSelector';
 import type { Tag } from '../types';
+import { guardNav, registerUnsavedAsk, setUnsaved } from '../unsaved';
 
 export default function CardEditor() {
   const params = useParams();
@@ -25,7 +26,8 @@ export default function CardEditor() {
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [leaveAsk, setLeaveAsk] = useState(false);
+  // 待确认的跳转动作;非空时显示“离开?”弹窗
+  const [leaveGo, setLeaveGo] = useState<(() => void) | null>(null);
   // 编辑器内容放 ref,避免每次按键触发整页重渲染
   const content = useRef({ json: '', text: '' });
 
@@ -85,13 +87,18 @@ export default function CardEditor() {
     return () => window.removeEventListener('keydown', h);
   }, [save]);
 
-  const back = () => {
-    if (dirty) {
-      setLeaveAsk(true);
-      return;
-    }
-    nav(`/kb/${kbId}`);
-  };
+  useEffect(() => {
+    setUnsaved(dirty);
+  }, [dirty]);
+  useEffect(() => {
+    const off = registerUnsavedAsk((go) => setLeaveGo(() => go));
+    return () => {
+      off();
+      setUnsaved(false);
+    };
+  }, []);
+
+  const back = () => guardNav(() => nav(`/kb/${kbId}`));
 
   return (
     <div className="page" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -105,7 +112,7 @@ export default function CardEditor() {
           )}
           <IconBtn tip="保存 (Ctrl+S)" type="primary" icon={<SaveOutlined />} loading={saving} onClick={save} />
           {cardId !== null && (
-            <IconBtn tip="在地图中查看" icon={<ApartmentOutlined />} onClick={() => nav(`/kb/${kbId}/graph?focus=${cardId}`)} />
+            <IconBtn tip="在地图中查看" icon={<ApartmentOutlined />} onClick={() => guardNav(() => nav(`/kb/${kbId}/graph?focus=${cardId}`))} />
           )}
         </Space>
       </div>
@@ -173,12 +180,24 @@ export default function CardEditor() {
       </Row>
 
       <Modal
-        open={leaveAsk}
+        open={leaveGo !== null}
         title="有未保存的修改,确定离开?"
         width={420}
         centered
-        onCancel={() => setLeaveAsk(false)}
-        footer={<ModalFooter onOk={() => nav(`/kb/${kbId}`)} onCancel={() => setLeaveAsk(false)} okTip="离开" cancelTip="继续编辑" />}
+        onCancel={() => setLeaveGo(null)}
+        footer={
+          <ModalFooter
+            onOk={() => {
+              const go = leaveGo;
+              setLeaveGo(null);
+              setUnsaved(false);
+              go?.();
+            }}
+            onCancel={() => setLeaveGo(null)}
+            okTip="离开"
+            cancelTip="继续编辑"
+          />
+        }
       />
     </div>
   );

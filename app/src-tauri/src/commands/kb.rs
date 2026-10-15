@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use tauri::State;
 
 use crate::db::{now_ms, Db};
@@ -59,6 +59,36 @@ pub fn update(conn: &Connection, id: i64, name: &str, description: &str) -> Resu
     get(conn, id)
 }
 
+/// 按名称/描述模糊搜索知识库(空格分隔的多个词全部命中,不区分大小写)
+pub fn search(conn: &Connection, query: &str, limit: i64) -> Result<Vec<Kb>> {
+    let terms: Vec<&str> = query.split_whitespace().collect();
+    if terms.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut conds = Vec::new();
+    let mut ps = Vec::new();
+    for (i, t) in terms.iter().enumerate() {
+        let esc = t.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        ps.push(format!("%{esc}%"));
+        let n = i + 1;
+        conds.push(format!("(k.name LIKE ?{n} ESCAPE '\\' OR k.description LIKE ?{n} ESCAPE '\\')"));
+    }
+    let sql = format!(
+        "{SEL} WHERE {} ORDER BY k.updated_at DESC LIMIT {}",
+        conds.join(" AND "),
+        limit.clamp(1, 50)
+    );
+    let mut st = conn.prepare(&sql)?;
+    let rows = st.query_map(params_from_iter(ps.iter()), row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// 刷新知识库的更新时间(卡片/关联变化时调用,用于列表的“最近更新”排序)
+pub fn touch(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("UPDATE kb SET updated_at = ?2 WHERE id = ?1", params![id, now_ms()])?;
+    Ok(())
+}
+
 /// 级联删除卡片/标签/关联;FTS 行需手动清理
 pub fn delete(conn: &Connection, id: i64) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
@@ -72,6 +102,12 @@ pub fn delete(conn: &Connection, id: i64) -> Result<()> {
 pub fn kb_list(db: State<Db>) -> Result<Vec<Kb>> {
     let conn = db.conn()?;
     list(&conn)
+}
+
+#[tauri::command]
+pub fn kb_search(db: State<Db>, query: String, limit: i64) -> Result<Vec<Kb>> {
+    let conn = db.conn()?;
+    search(&conn, &query, limit)
 }
 
 #[tauri::command]

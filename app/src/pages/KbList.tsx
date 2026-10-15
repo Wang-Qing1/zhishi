@@ -16,12 +16,16 @@ export default function KbList() {
   const [list, setList] = useState<Kb[]>([]);
   const [editing, setEditing] = useState<Partial<Kb> | null>(null);
   const [keyword, setKeyword] = useState('');
+  const [loading, setLoading] = useState(true);
   const [form] = Form.useForm();
 
   const reload = useCallback(() => api.kbList().then(setList).catch((e) => message.error(errMsg(e))), [message]);
   useEffect(() => {
     // 首次数据加载完成后收起启动画面
-    reload().finally(hideSplash);
+    reload().finally(() => {
+      setLoading(false);
+      hideSplash();
+    });
   }, [reload]);
 
   const openEdit = (kb: Partial<Kb>) => {
@@ -61,7 +65,7 @@ export default function KbList() {
           <IconBtn tip="新建知识库" type="primary" icon={<PlusOutlined />} onClick={() => openEdit({})} />
         </div>
       </div>
-      {list.length === 0 ? (
+      {loading ? null : list.length === 0 ? (
         <EmptyHint text="还没有知识库,点击右上角加号新建" />
       ) : shown.length === 0 ? (
         <EmptyHint text="没有匹配的知识库" />

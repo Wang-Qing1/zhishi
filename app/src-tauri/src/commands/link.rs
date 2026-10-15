@@ -1,6 +1,7 @@
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use tauri::State;
 
+use crate::commands::kb;
 use crate::db::{now_ms, Db};
 use crate::error::{AppError, Result};
 use crate::models::Link;
@@ -45,11 +46,18 @@ pub fn create(conn: &Connection, src_id: i64, dst_id: i64, relation_type: &str, 
     )
     .map_err(|e| AppError::from_constraint(e, "该关联已存在"))?;
     let id = conn.last_insert_rowid();
+    kb::touch(conn, kb)?;
     Ok(conn.query_row(&format!("{SEL} WHERE l.id = ?1"), [id], row)?)
 }
 
 pub fn delete(conn: &Connection, id: i64) -> Result<()> {
+    let kb_id: Option<i64> = conn
+        .query_row("SELECT kb_id FROM card_link WHERE id = ?1", [id], |r| r.get(0))
+        .optional()?;
     conn.execute("DELETE FROM card_link WHERE id = ?1", [id])?;
+    if let Some(k) = kb_id {
+        kb::touch(conn, k)?;
+    }
     Ok(())
 }
 

@@ -39,6 +39,56 @@ import { RELATION_TYPES, relationLabel } from '../types';
 
 const W = 180;
 const H = 44;
+const GAP_X = 80;
+const GAP_Y = 20;
+
+type Pos = { x: number; y: number };
+
+/** 已有保存位置时,给没有位置的节点摆放:贴着已定位的邻居(目标端在右、源端在左),重叠则向下错开;无邻居可参照的按网格排在整体下方 */
+function placeUnsaved(g: Graph, pos: Map<number, Pos>) {
+  const hit = (x: number, y: number) => {
+    for (const p of pos.values()) {
+      if (Math.abs(p.x - x) < W + 20 && Math.abs(p.y - y) < H + GAP_Y) return true;
+    }
+    return false;
+  };
+  const free = (x: number, y: number): Pos => {
+    while (hit(x, y)) y += H + GAP_Y;
+    return { x, y };
+  };
+  let pending = g.nodes.filter((n) => !pos.has(n.id));
+  while (pending.length > 0) {
+    const rest: typeof pending = [];
+    for (const n of pending) {
+      let want: Pos | null = null;
+      for (const e of g.edges) {
+        if (e.dstId === n.id && pos.has(e.srcId)) {
+          const p = pos.get(e.srcId)!;
+          want = { x: p.x + W + GAP_X, y: p.y };
+          break;
+        }
+        if (e.srcId === n.id && pos.has(e.dstId)) {
+          const p = pos.get(e.dstId)!;
+          want = { x: p.x - W - GAP_X, y: p.y };
+          break;
+        }
+      }
+      if (want) pos.set(n.id, free(want.x, want.y));
+      else rest.push(n);
+    }
+    if (rest.length === pending.length) break;
+    pending = rest;
+  }
+  if (pending.length > 0) {
+    const ps = [...pos.values()];
+    const minX = Math.min(...ps.map((p) => p.x));
+    const startY = Math.max(...ps.map((p) => p.y)) + H + 40;
+    const cols = Math.min(6, Math.max(1, Math.ceil(Math.sqrt(pending.length))));
+    pending.forEach((n, i) => {
+      pos.set(n.id, { x: minX + (i % cols) * (W + 40), y: startY + Math.floor(i / cols) * (H + 30) });
+    });
+  }
+}
 
 /** dagre 分层布局:LR 从左到右 */
 function layout(g: Graph, focusId: number | null): { nodes: Node[]; edges: Edge[] } {
@@ -69,14 +119,26 @@ function layout(g: Graph, focusId: number | null): { nodes: Node[]; edges: Edge[
     grid.set(n.id, { x: minX + (i % cols) * (W + 40), y: startY + Math.floor(i / cols) * (H + 30) });
   });
 
+  // 最终坐标:已保存位置优先;完全没有保存位置时用 dagre + 孤立网格,否则新节点贴着已有邻居摆放
+  const pos = new Map<number, Pos>();
+  g.nodes.forEach((n) => {
+    if (n.x != null && n.y != null) pos.set(n.id, { x: n.x, y: n.y });
+  });
+  if (pos.size === 0) {
+    g.nodes.forEach((n) => {
+      const p = linked.has(n.id) ? dg.node(String(n.id)) : null;
+      pos.set(n.id, p ? { x: p.x - W / 2, y: p.y - H / 2 } : grid.get(n.id)!);
+    });
+  } else {
+    placeUnsaved(g, pos);
+  }
+
   const nodes: Node[] = g.nodes.map((n) => {
-    const p = linked.has(n.id) ? dg.node(String(n.id)) : null;
-    const auto = p ? { x: p.x - W / 2, y: p.y - H / 2 } : grid.get(n.id)!;
     const color = n.tags[0]?.color ?? '#999';
     return {
       id: String(n.id),
       // 已保存的位置优先,否则用自动布局
-      position: n.x != null && n.y != null ? { x: n.x, y: n.y } : auto,
+      position: pos.get(n.id)!,
       // 布局是从左到右,连线从右侧出、从左侧入,避免绕到卡片上下侧
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
@@ -267,30 +329,30 @@ function Inner() {
   return (
     <div className="page">
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-      <Space wrap>
-        <IconBtn tip="返回" icon={<ArrowLeftOutlined />} onClick={() => nav(`/kb/${kbId}`)} />
-        <Typography.Title level={4} style={{ margin: 0 }}>
-          知识地图
-        </Typography.Title>
-        {truncated && (
-          <Typography.Text type="warning">
-            全图已达 1500 节点上限，仅显示最近更新的卡片
-          </Typography.Text>
-        )}
-        <Hint text={`${focus ? '聚焦子图' : '全图'}(${count} 个节点${truncated ? '，已达 1500 节点上限，仅显示最近更新的卡片' : ''}) · 单击节点打开卡片 · 右键节点打开菜单(编辑、聚焦子图、添加/删除关联) · 拖动节点右侧圆点到另一节点建立关联 · 单击连线删除`} />
-      </Space>
-      <Space wrap>
-        <Confirm title="重新自动排列?已保存的手动位置将被清除" onConfirm={resetLayout}>
-          <IconBtn tip="重新自动排列" icon={<ReloadOutlined />} />
-        </Confirm>
-        {focus && (
-          <>
-            <span>深度</span>
-            <InputNumber min={1} max={6} value={depth} onChange={(v) => setDepth(v ?? 2)} />
-            <IconBtn tip="显示全图" icon={<FullscreenOutlined />} onClick={() => setSp({})} />
-          </>
-        )}
-      </Space>
+        <Space wrap>
+          <IconBtn tip="返回" icon={<ArrowLeftOutlined />} onClick={() => nav(`/kb/${kbId}`)} />
+          <Typography.Title level={4} style={{ margin: 0 }}>
+            知识地图
+          </Typography.Title>
+          {truncated && (
+            <Typography.Text type="warning">
+              全图已达 1500 节点上限，仅显示最近更新的卡片
+            </Typography.Text>
+          )}
+          <Hint text={`${focus ? '聚焦子图' : '全图'}(${count} 个节点${truncated ? '，已达 1500 节点上限，仅显示最近更新的卡片' : ''}) · 单击节点打开卡片 · 右键节点打开菜单(编辑、聚焦子图、添加/删除关联) · 拖动节点右侧圆点到另一节点建立关联 · 单击连线删除`} />
+        </Space>
+        <Space wrap>
+          <Confirm title="重新自动排列?已保存的手动位置将被清除" onConfirm={resetLayout}>
+            <IconBtn tip="重新自动排列" icon={<ReloadOutlined />} />
+          </Confirm>
+          {focus && (
+            <>
+              <span>深度</span>
+              <InputNumber min={1} max={6} value={depth} onChange={(v) => setDepth(v ?? 2)} />
+              <IconBtn tip="显示全图" icon={<FullscreenOutlined />} onClick={() => setSp({})} />
+            </>
+          )}
+        </Space>
       </div>
       <div className="graph-wrap">
         <ReactFlow

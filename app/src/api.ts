@@ -9,9 +9,8 @@ export const api = {
   kbUpdate: (id: number, name: string, description: string) =>
     invoke<Kb>('kb_update', { id, name, description }),
   kbDelete: (id: number) => invoke<void>('kb_delete', { id }),
+  kbSearch: (query: string, limit = 10) => invoke<Kb[]>('kb_search', { query, limit }),
 
-  cardList: (kbId: number, tagIds: number[] = [], offset = 0, limit = 200) =>
-    invoke<CardSummary[]>('card_list', { kbId, tagIds, offset, limit }),
   cardListPage: (kbId: number, tagIds: number[], keyword: string, offset: number, limit: number) =>
     invoke<CardPage>('card_list_page', { kbId, tagIds, keyword, offset, limit }),
   cardSearchTitles: (kbId: number, query: string) =>
