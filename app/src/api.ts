@@ -15,6 +15,8 @@ export const api = {
     invoke<CardPage>('card_list_page', { kbId, tagIds, keyword, offset, limit }),
   cardSearchTitles: (kbId: number, query: string) =>
     invoke<CardSummary[]>('card_search_titles', { kbId, query }),
+  cardBacklinks: (kbId: number, cardId: number) =>
+    invoke<CardSummary[]>('card_backlinks', { kbId, cardId }),
   cardGet: (id: number) => invoke<Card>('card_get', { id }),
   cardCreate: (kbId: number, title: string, contentJson: string, contentText: string, tagIds: number[]) =>
     invoke<Card>('card_create', { kbId, title, contentJson, contentText, tagIds }),

@@ -8,6 +8,7 @@ import ModalFooter from './ModalFooter';
 import RichEditor from './RichEditor';
 
 interface Props {
+  kbId: number;
   /** 为 null 时弹窗关闭 */
   cardId: number | null;
   onClose: () => void;
@@ -18,7 +19,7 @@ interface Props {
 }
 
 /** 弹窗查看/编辑卡片:标题 + 富文本内容(标签保持不变) */
-export default function CardModal({ cardId, onClose, onSaved, onOpenPage }: Props) {
+export default function CardModal({ kbId, cardId, onClose, onSaved, onOpenPage }: Props) {
   const { message } = App.useApp();
   const [card, setCard] = useState<Card | null>(null);
   const [title, setTitle] = useState('');
@@ -44,6 +45,18 @@ export default function CardModal({ cardId, onClose, onSaved, onOpenPage }: Prop
       message.success('已保存');
       onSaved();
       onClose();
+    } catch (e) {
+      message.error(errMsg(e));
+    }
+  };
+
+  const followReference = async (targetId: number) => {
+    if (!card) return;
+    try {
+      await api.cardUpdate(card.id, title, content.current.json, content.current.text, card.tags.map((t) => t.id));
+      onSaved();
+      onClose();
+      onOpenPage(targetId);
     } catch (e) {
       message.error(errMsg(e));
     }
@@ -85,6 +98,9 @@ export default function CardModal({ cardId, onClose, onSaved, onOpenPage }: Prop
           <RichEditor
             key={card.id}
             initial={card.contentJson}
+            kbId={kbId}
+            currentCardId={card.id}
+            onOpenCard={followReference}
             onReady={(json, text) => {
               content.current = { json, text };
             }}

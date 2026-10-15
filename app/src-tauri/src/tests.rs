@@ -151,6 +151,49 @@ fn kb_search_by_name_and_description() {
 }
 
 #[test]
+fn card_references_return_backlinks_without_partial_id_matches() {
+    let conn = setup();
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let other_kb = kb::create(&conn, "other", "").unwrap().id;
+    let target = mk_card(&conn, k, "目标卡片", "", &[]);
+    let ref_tag = tag::create(&conn, k, "引用来源", "#1677ff").unwrap().id;
+    let reference_doc = serde_json::json!({
+        "type": "doc",
+        "content": [{
+            "type": "paragraph",
+            "content": [{
+                "type": "text",
+                "text": "目标卡片",
+                "marks": [{
+                    "type": "link",
+                    "attrs": { "href": format!("zhishi-card://{target}") }
+                }]
+            }]
+        }]
+    });
+    let source = card::create(&conn, k, "引用来源卡片", &reference_doc.to_string(), "目标卡片", &[ref_tag]).unwrap().id;
+    let partial_id_doc = serde_json::json!({
+        "type": "doc",
+        "content": [{
+            "type": "text",
+            "text": "不是目标引用",
+            "marks": [{
+                "type": "link",
+                "attrs": { "href": format!("zhishi-card://{}0", target) }
+            }]
+        }]
+    });
+    card::create(&conn, k, "部分 ID", &partial_id_doc.to_string(), "", &[]).unwrap();
+    mk_card(&conn, other_kb, "其他知识库", &reference_doc.to_string(), &[]);
+
+    let backlinks = card::backlinks(&conn, k, target).unwrap();
+    assert_eq!(backlinks.len(), 1);
+    assert_eq!(backlinks[0].id, source);
+    assert_eq!(backlinks[0].tags[0].id, ref_tag);
+    assert!(card::backlinks(&conn, other_kb, target).is_err());
+}
+
+#[test]
 fn fts_snippet_highlights_title_only_match() {
     let conn = setup();
     let k = kb::create(&conn, "k", "").unwrap().id;

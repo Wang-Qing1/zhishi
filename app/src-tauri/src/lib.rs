@@ -61,6 +61,7 @@ pub fn run() {
             card::card_delete,
             card::card_list_page,
             card::card_search_titles,
+            card::card_backlinks,
             tag::tag_list,
             tag::tag_create,
             tag::tag_update,

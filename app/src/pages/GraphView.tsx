@@ -527,6 +527,8 @@ function Inner() {
           <RichEditor
             key={createPosition ? `${createPosition.x},${createPosition.y}` : 'new'}
             initial=""
+            kbId={kbId}
+            onOpenCard={setOpenId}
             onReady={(json, text) => {
               newContent.current = { json, text };
             }}
@@ -537,6 +539,7 @@ function Inner() {
         </Space>
       </Modal>
       <CardModal
+        kbId={kbId}
         cardId={openId}
         onClose={() => setOpenId(null)}
         onSaved={load}

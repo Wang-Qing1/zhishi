@@ -9,6 +9,7 @@ import {
   DownOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
+  FileTextOutlined,
   FontColorsOutlined,
   FullscreenExitOutlined,
   FullscreenOutlined,
@@ -31,7 +32,7 @@ import {
   UndoOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
-import { App, Button, Input, Menu, Modal, Popover, Tooltip } from 'antd';
+import { App, Button, Input, Menu, Modal, Popover, Tooltip, Typography } from 'antd';
 import type { ButtonProps } from 'antd';
 import type { Editor } from '@tiptap/react';
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
@@ -39,6 +40,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { api, errMsg } from '../api';
 import { readImage } from '../images';
 import ModalFooter from './ModalFooter';
+import type { CardSummary } from '../types';
 
 const TEXT_COLORS = ['#000000', '#e03131', '#f08c00', '#2f9e44', '#1c7ed6', '#7048e8', '#c2255c', '#868e96'];
 const HL_COLORS = ['#fff3bf', '#ffd8a8', '#d3f9d8', '#c5f6fa', '#d0ebff', '#e5dbff', '#ffdeeb', '#e9ecef'];
@@ -54,7 +56,7 @@ const SPECIAL = [
 /** antd 没有的图标用简短字符代替 */
 const glyph = (s: string) => <span style={{ fontSize: 12, fontWeight: 700, lineHeight: 1 }}>{s}</span>;
 
-interface BtnProps extends Omit<ButtonProps, 'type' | 'size' | 'shape' | 'icon' | 'children'> {
+interface BtnProps extends Omit<ButtonProps, 'type' | 'size' | 'shape' | 'icon' | 'children' | 'content'> {
   tip: string;
   icon: ReactNode;
   active?: boolean;
@@ -149,13 +151,112 @@ const colorIcon = (icon: ReactNode, color: string) => (
 
 interface Props {
   editor: Editor;
+  kbId: number;
+  currentCardId?: number;
   preview: boolean;
   fullscreen: boolean;
   onPreview: () => void;
   onFullscreen: () => void;
 }
 
-export default function EditorToolbar({ editor, preview, fullscreen, onPreview, onFullscreen }: Props) {
+function CardReferenceButton({
+  editor,
+  kbId,
+  currentCardId,
+  disabled,
+}: {
+  editor: Editor;
+  kbId: number;
+  currentCardId?: number;
+  disabled: boolean;
+}) {
+  const { message } = App.useApp();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [cards, setCards] = useState<CardSummary[]>([]);
+  const [loading, setLoading] = useState(false);
+  const selection = useRef<{ from: number; to: number } | null>(null);
+  const request = useRef(0);
+
+  useEffect(() => {
+    if (!open) return;
+    const seq = ++request.current;
+    setCards([]);
+    setLoading(true);
+    const timer = window.setTimeout(() => {
+      api.cardSearchTitles(kbId, query).then((result) => {
+        if (seq === request.current) setCards(result.filter((card) => card.id !== currentCardId));
+      }).catch((e) => {
+        if (seq === request.current) message.error(errMsg(e));
+      }).finally(() => {
+        if (seq === request.current) setLoading(false);
+      });
+    }, 200);
+    return () => {
+      window.clearTimeout(timer);
+      request.current += 1;
+    };
+  }, [open, kbId, currentCardId, query, message]);
+
+  const insert = (card: CardSummary) => {
+    const range = selection.current ?? editor.state.selection;
+    editor.chain().focus().insertContentAt(
+      { from: range.from, to: range.to },
+      {
+        type: 'text',
+        text: card.title,
+        marks: [{ type: 'link', attrs: { href: `zhishi-card://${card.id}` } }],
+      },
+    ).run();
+    setOpen(false);
+  };
+
+  return (
+    <Popover
+      open={open && !disabled}
+      onOpenChange={setOpen}
+      trigger="click"
+      arrow={false}
+      placement="bottomLeft"
+      content={
+        <div style={{ width: 280 }}>
+          <Input
+            autoFocus
+            allowClear
+            placeholder="搜索要引用的卡片"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{ marginBottom: 8 }}
+          />
+          <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+            {loading ? (
+              <Typography.Text type="secondary">搜索中…</Typography.Text>
+            ) : cards.length ? (
+              cards.map((card) => (
+                <Button key={card.id} type="text" block style={{ textAlign: 'left' }} onClick={() => insert(card)}>
+                  <Typography.Text ellipsis>{card.title}</Typography.Text>
+                </Button>
+              ))
+            ) : (
+              <Typography.Text type="secondary">没有可引用的卡片</Typography.Text>
+            )}
+          </div>
+        </div>
+      }
+    >
+      <Btn
+        tip="引用卡片"
+        icon={<FileTextOutlined />}
+        disabled={disabled}
+        onMouseDown={() => {
+          selection.current = { from: editor.state.selection.from, to: editor.state.selection.to };
+        }}
+      />
+    </Popover>
+  );
+}
+
+export default function EditorToolbar({ editor, kbId, currentCardId, preview, fullscreen, onPreview, onFullscreen }: Props) {
   const { message } = App.useApp();
   const fileRef = useRef<HTMLInputElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
@@ -298,6 +399,7 @@ export default function EditorToolbar({ editor, preview, fullscreen, onPreview, 
       <Btn tip="无序列表" icon={<UnorderedListOutlined />} disabled={ro} active={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()} />
       <Btn tip="有序列表" icon={<OrderedListOutlined />} disabled={ro} active={editor.isActive('orderedList')} onClick={() => c().toggleOrderedList().run()} />
       <Btn tip="链接" icon={<LinkOutlined />} disabled={ro} active={editor.isActive('link')} onClick={setLink} />
+      <CardReferenceButton editor={editor} kbId={kbId} currentCardId={currentCardId} disabled={ro} />
       <Btn tip="图片" icon={<PictureOutlined />} disabled={ro} onClick={() => fileRef.current?.click()} />
       <input
         ref={fileRef}

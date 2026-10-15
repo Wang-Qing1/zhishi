@@ -26,6 +26,7 @@ export default function CardEditor() {
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [savedRevision, setSavedRevision] = useState(0);
   // 待确认的跳转动作;非空时显示“离开?”弹窗
   const [leaveGo, setLeaveGo] = useState<(() => void) | null>(null);
   // 编辑器内容放 ref,避免每次按键触发整页重渲染
@@ -66,6 +67,7 @@ export default function CardEditor() {
       } else {
         await api.cardUpdate(cardId, title, json, text, tagIds);
         message.success('已保存');
+        setSavedRevision((revision) => revision + 1);
       }
       setDirty(false);
     } catch (e) {
@@ -153,6 +155,9 @@ export default function CardEditor() {
             <RichEditor
               key={cardId ?? 'new'}
               initial={initial}
+              kbId={kbId}
+              currentCardId={cardId ?? undefined}
+              onOpenCard={(targetId) => guardNav(() => nav(`/kb/${kbId}/card/${targetId}`))}
               onReady={(json, text) => {
                 content.current = { json, text };
               }}
@@ -166,14 +171,14 @@ export default function CardEditor() {
         <Col xs={24} lg={8} style={{ height: '100%', minWidth: 0 }}>
           <Card
             size="small"
-            title="关联卡片"
+            title="关联与引用"
             style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
             styles={{ body: { flex: 1, minHeight: 0, overflow: 'auto' } }}
           >
             {cardId === null ? (
               <Hint text="保存卡片后可添加关联" />
             ) : (
-              <LinkPanel kbId={kbId} cardId={cardId} />
+              <LinkPanel kbId={kbId} cardId={cardId} refreshKey={savedRevision} />
             )}
           </Card>
         </Col>

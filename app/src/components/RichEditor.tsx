@@ -12,6 +12,7 @@ import Underline from '@tiptap/extension-underline';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { useEffect, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { CardImage } from '../images';
 import EditorToolbar from './EditorToolbar';
 
@@ -27,12 +28,15 @@ export function parseContent(json: string) {
 interface Props {
   /** 初始内容(Tiptap JSON 字符串);切换卡片时用 key 重建组件 */
   initial: string;
+  kbId: number;
+  currentCardId?: number;
+  onOpenCard?: (cardId: number) => void;
   onChange: (json: string, text: string) => void;
   /** 编辑器创建完成时回调(不算用户修改),用于获取初始纯文本 */
   onReady?: (json: string, text: string) => void;
 }
 
-export default function RichEditor({ initial, onChange, onReady }: Props) {
+export default function RichEditor({ initial, kbId, currentCardId, onOpenCard, onChange, onReady }: Props) {
   const [fullscreen, setFullscreen] = useState(false);
   const [preview, setPreview] = useState(false);
 
@@ -49,7 +53,7 @@ export default function RichEditor({ initial, onChange, onReady }: Props) {
       TableRow,
       TableHeader,
       TableCell,
-      Link.configure({ openOnClick: false }),
+      Link.configure({ openOnClick: false, protocols: [{ scheme: 'zhishi-card', optionalSlashes: true }] }),
       Placeholder.configure({ placeholder: '在此编写知识内容…' }),
     ],
     content: parseContent(initial),
@@ -70,17 +74,29 @@ export default function RichEditor({ initial, onChange, onReady }: Props) {
     return () => window.removeEventListener('keydown', h);
   }, [fullscreen]);
 
+  const openReference = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const anchor = target.closest<HTMLAnchorElement>('a[href^="zhishi-card://"]');
+    if (!anchor) return;
+    event.preventDefault();
+    const cardId = Number(anchor.getAttribute('href')?.slice('zhishi-card://'.length));
+    if (Number.isSafeInteger(cardId) && cardId > 0) onOpenCard?.(cardId);
+  };
+
   if (!editor) return null;
   return (
     <div className={`editor-wrap${fullscreen ? ' fullscreen' : ''}`}>
       <EditorToolbar
         editor={editor}
+        kbId={kbId}
+        currentCardId={currentCardId}
         preview={preview}
         fullscreen={fullscreen}
         onPreview={() => setPreview((p) => !p)}
         onFullscreen={() => setFullscreen((f) => !f)}
       />
-      <EditorContent editor={editor} className="editor-body" />
+      <EditorContent editor={editor} className="editor-body" onClick={openReference} />
     </div>
   );
 }

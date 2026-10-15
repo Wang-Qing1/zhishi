@@ -1,4 +1,5 @@
 use rusqlite::{params, Connection, OptionalExtension};
+use serde_json::Value;
 use tauri::State;
 
 use crate::commands::{kb, tag};
@@ -6,9 +7,33 @@ use crate::db::{now_ms, Db};
 use crate::error::{AppError, Result};
 use crate::models::{Card, CardPage, CardSummary};
 
+const CARD_REF_PREFIX: &str = "zhishi-card://";
+
 fn norm_title(t: &str) -> String {
     let t = t.trim();
     if t.is_empty() { "未命名卡片".to_string() } else { t.to_string() }
+}
+
+fn references_card(content_json: &str, card_id: i64) -> bool {
+    fn contains_reference(value: &Value, href: &str) -> bool {
+        match value {
+            Value::Object(object) => {
+                let is_reference = object.get("type").and_then(Value::as_str) == Some("link")
+                    && object
+                        .get("attrs")
+                        .and_then(|attrs| attrs.get("href"))
+                        .and_then(Value::as_str)
+                        == Some(href);
+                is_reference || object.values().any(|value| contains_reference(value, href))
+            }
+            Value::Array(items) => items.iter().any(|value| contains_reference(value, href)),
+            _ => false,
+        }
+    }
+
+    serde_json::from_str(content_json)
+        .map(|value| contains_reference(&value, &format!("{CARD_REF_PREFIX}{card_id}")))
+        .unwrap_or(false)
 }
 
 /// 重建单张卡片的全文索引(标题 + 正文 + 标签名)
@@ -163,6 +188,46 @@ pub fn search_titles(conn: &Connection, kb_id: i64, query: &str) -> Result<Vec<C
     Ok(list_page(conn, kb_id, &[], query, 0, 50)?.items)
 }
 
+pub fn backlinks(conn: &Connection, kb_id: i64, card_id: i64) -> Result<Vec<CardSummary>> {
+    if find_kb_id(conn, card_id)? != Some(kb_id) {
+        return Err(AppError::NotFound(format!("知识库 {kb_id} 中的卡片 {card_id}")));
+    }
+
+    let mut st = conn.prepare(
+        "SELECT id, kb_id, title, substr(content_text, 1, 120), updated_at, content_json
+         FROM card
+         WHERE kb_id = ?1 AND id != ?2 AND content_json LIKE ?3
+         ORDER BY updated_at DESC, id DESC",
+    )?;
+    let candidates = st
+        .query_map(
+            params![kb_id, card_id, format!("%{CARD_REF_PREFIX}{card_id}%")],
+            |r| {
+                Ok((
+                    CardSummary {
+                        id: r.get(0)?,
+                        kb_id: r.get(1)?,
+                        title: r.get(2)?,
+                        excerpt: r.get(3)?,
+                        updated_at: r.get(4)?,
+                        tags: vec![],
+                    },
+                    r.get::<_, String>(5)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut items: Vec<CardSummary> = candidates
+        .into_iter()
+        .filter_map(|(summary, content)| references_card(&content, card_id).then_some(summary))
+        .collect();
+    let tags = tag::of_cards(conn, &items.iter().map(|c| c.id).collect::<Vec<_>>())?;
+    for item in &mut items {
+        item.tags = tags.get(&item.id).cloned().unwrap_or_default();
+    }
+    Ok(items)
+}
+
 #[tauri::command]
 pub fn card_get(db: State<Db>, id: i64) -> Result<Card> {
     let conn = db.conn()?;
@@ -218,4 +283,10 @@ pub fn card_list_page(
 pub fn card_search_titles(db: State<Db>, kb_id: i64, query: String) -> Result<Vec<CardSummary>> {
     let conn = db.conn()?;
     search_titles(&conn, kb_id, &query)
+}
+
+#[tauri::command]
+pub fn card_backlinks(db: State<Db>, kb_id: i64, card_id: i64) -> Result<Vec<CardSummary>> {
+    let conn = db.conn()?;
+    backlinks(&conn, kb_id, card_id)
 }

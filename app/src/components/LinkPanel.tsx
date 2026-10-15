@@ -1,5 +1,5 @@
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { App, Input, List, Select, Tag } from 'antd';
+import { App, Input, List, Select, Tag, Typography } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { api, errMsg } from '../api';
@@ -10,10 +10,11 @@ import { RELATION_TYPES, relationLabel } from '../types';
 import { guardNav } from '../unsaved';
 
 /** 卡片关联:列出出入边,可新增(选目标卡片+关系类型)/删除 */
-export default function LinkPanel({ kbId, cardId }: { kbId: number; cardId: number }) {
+export default function LinkPanel({ kbId, cardId, refreshKey = 0 }: { kbId: number; cardId: number; refreshKey?: number }) {
   const { message } = App.useApp();
   const nav = useNavigate();
   const [links, setLinks] = useState<Link[]>([]);
+  const [backlinks, setBacklinks] = useState<CardSummary[]>([]);
   const [cards, setCards] = useState<CardSummary[]>([]);
   const [cardQuery, setCardQuery] = useState('');
   const [dst, setDst] = useState<number>();
@@ -22,15 +23,17 @@ export default function LinkPanel({ kbId, cardId }: { kbId: number; cardId: numb
   const searchSeq = useRef(0);
 
   const reload = useCallback(async () => {
-    setLinks(await api.linkListByCard(cardId));
-  }, [cardId]);
+    const [related, refs] = await Promise.all([api.linkListByCard(cardId), api.cardBacklinks(kbId, cardId)]);
+    setLinks(related);
+    setBacklinks(refs);
+  }, [kbId, cardId]);
 
   useEffect(() => {
     setDst(undefined);
     setNote('');
     setCardQuery('');
     reload().catch((e) => message.error(errMsg(e)));
-  }, [kbId, cardId, reload, message]);
+  }, [kbId, cardId, reload, refreshKey, message]);
 
   useEffect(() => {
     const seq = ++searchSeq.current;
@@ -54,7 +57,7 @@ export default function LinkPanel({ kbId, cardId }: { kbId: number; cardId: numb
       await api.linkCreate(cardId, dst, type, note);
       setDst(undefined);
       setNote('');
-      reload();
+      await reload();
     } catch (e) {
       message.error(errMsg(e));
     }
@@ -78,39 +81,70 @@ export default function LinkPanel({ kbId, cardId }: { kbId: number; cardId: numb
         <IconBtn tip="添加关联" type="primary" icon={<PlusOutlined />} disabled={!dst} onClick={add} />
       </div>
       <Input placeholder="备注(可选)" value={note} onChange={(e) => setNote(e.target.value)} style={{ marginBottom: 8 }} />
-      <List
-        size="small"
-        locale={{ emptyText: '暂无关联' }}
-        dataSource={links}
-        renderItem={(l) => {
-          const out = l.srcId === cardId;
-          const otherId = out ? l.dstId : l.srcId;
-          const otherTitle = out ? l.dstTitle : l.srcTitle;
-          return (
-            <List.Item
-              className="link-panel-item"
-              actions={[
-                <Confirm key="d" title="删除该关联?" onConfirm={() => api.linkDelete(l.id).then(reload).catch((e) => message.error(errMsg(e)))}>
-                  <IconBtn tip="删除关联" size="small" danger icon={<DeleteOutlined />} />
-                </Confirm>,
-              ]}
-            >
-              <Tag>{out ? '→' : '←'} {relationLabel(l.relationType)}</Tag>
+      {(['out', 'in'] as const).map((direction) => {
+        const directed = links.filter((link) => (link.srcId === cardId) === (direction === 'out'));
+        return (
+          <section key={direction} style={{ marginTop: 12 }}>
+            <Typography.Text type="secondary">{direction === 'out' ? '此卡片指向' : '指向此卡片'}</Typography.Text>
+            <List
+              size="small"
+              locale={{ emptyText: '暂无关联' }}
+              dataSource={directed}
+              renderItem={(l) => {
+                const out = l.srcId === cardId;
+                const otherId = out ? l.dstId : l.srcId;
+                const otherTitle = out ? l.dstTitle : l.srcTitle;
+                return (
+                  <List.Item
+                    className="link-panel-item"
+                    actions={[
+                      <Confirm key="d" title="删除该关联?" onConfirm={() => api.linkDelete(l.id).then(reload).catch((e) => message.error(errMsg(e)))}>
+                        <IconBtn tip="删除关联" size="small" danger icon={<DeleteOutlined />} />
+                      </Confirm>,
+                    ]}
+                  >
+                    <Tag>{out ? '→' : '←'} {relationLabel(l.relationType)}</Tag>
+                    <RouterLink
+                      className="link-panel-title"
+                      to={`/kb/${kbId}/card/${otherId}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        guardNav(() => nav(`/kb/${kbId}/card/${otherId}`));
+                      }}
+                    >
+                      {otherTitle}
+                    </RouterLink>
+                    {l.note && <span className="link-panel-note">{l.note}</span>}
+                  </List.Item>
+                );
+              }}
+            />
+          </section>
+        );
+      })}
+      <section style={{ marginTop: 12 }}>
+        <Typography.Text type="secondary">正文引用此卡片</Typography.Text>
+        <List
+          size="small"
+          locale={{ emptyText: '暂无正文引用' }}
+          dataSource={backlinks}
+          renderItem={(card) => (
+            <List.Item className="link-panel-item">
+              <Tag>引用</Tag>
               <RouterLink
                 className="link-panel-title"
-                to={`/kb/${kbId}/card/${otherId}`}
+                to={`/kb/${kbId}/card/${card.id}`}
                 onClick={(e) => {
                   e.preventDefault();
-                  guardNav(() => nav(`/kb/${kbId}/card/${otherId}`));
+                  guardNav(() => nav(`/kb/${kbId}/card/${card.id}`));
                 }}
               >
-                {otherTitle}
+                {card.title}
               </RouterLink>
-              {l.note && <span className="link-panel-note">{l.note}</span>}
             </List.Item>
-          );
-        }}
-      />
+          )}
+        />
+      </section>
     </div>
   );
 }

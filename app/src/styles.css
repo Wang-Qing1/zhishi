@@ -42,6 +42,7 @@ body { background: #f5f6f8; }
 .tiptap pre { background: #1e1e1e; color: #eee; padding: 10px 12px; border-radius: 6px; overflow: auto; }
 .tiptap code { background: #f2f2f2; padding: 1px 4px; border-radius: 3px; }
 .tiptap pre code { background: none; padding: 0; }
+.tiptap a[href^="zhishi-card://"] { color: #1677ff; background: #e6f4ff; border-radius: 4px; padding: 0 3px; cursor: pointer; }
 
 .graph-wrap { height: calc(100vh - 150px); background: #fff; border: 1px solid #eee; border-radius: 16px; overflow: hidden; }
 .graph-wrap .react-flow__pane { cursor: move !important; }
