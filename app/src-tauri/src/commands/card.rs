@@ -102,6 +102,8 @@ pub fn create(
     get(conn, id)
 }
 
+/// 测试用的简写:不强制生成历史版本;正式代码直接调用 update_with
+#[cfg(test)]
 pub fn update(
     conn: &Connection,
     id: i64,
@@ -185,6 +187,7 @@ pub fn delete(conn: &Connection, id: i64) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
     tx.execute("DELETE FROM card_fts WHERE rowid = ?1", [id])?;
     tx.execute("DELETE FROM card WHERE id = ?1", [id])?;
+    tx.execute("DELETE FROM card_draft WHERE card_id = ?1", [id])?;
     if let Some(k) = kb_id {
         kb::touch(&tx, k)?;
     }

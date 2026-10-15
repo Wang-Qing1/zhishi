@@ -10,5 +10,9 @@ export default function ContentPreview({ json }: { json: string }) {
     editable: false,
   });
   useEffect(() => () => editor?.destroy(), [editor]);
-  return <EditorContent editor={editor} className="editor-body" />;
+  return (
+    <div className="is-readonly">
+      <EditorContent editor={editor} className="editor-body" />
+    </div>
+  );
 }

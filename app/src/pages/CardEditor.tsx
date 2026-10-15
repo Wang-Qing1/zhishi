@@ -10,7 +10,7 @@ import ModalFooter from '../components/ModalFooter';
 import RichEditor from '../components/RichEditor';
 import TagSelector from '../components/TagSelector';
 import VersionHistory from '../components/VersionHistory';
-import type { CardVersion, Tag } from '../types';
+import type { CardVersion, Draft, Tag } from '../types';
 import { guardNav, registerUnsavedAsk, setUnsaved } from '../unsaved';
 
 export default function CardEditor() {
@@ -37,31 +37,73 @@ export default function CardEditor() {
   const [leaveGo, setLeaveGo] = useState<(() => void) | null>(null);
   // 编辑器内容放 ref,避免每次按键触发整页重渲染
   const content = useRef({ json: '', text: '' });
+  // 发现的未保存草稿,等用户选择恢复或丢弃
+  const [pendingDraft, setPendingDraft] = useState<Draft | null>(null);
+  // 草稿定时器读取最新的标题/标签
+  const latest = useRef({ title: '', tagIds: [] as number[] });
+  latest.current = { title, tagIds };
+  const draftTimer = useRef<number | undefined>(undefined);
+
+  // 停止输入 2 秒后自动存草稿;新建卡片用 cardId = 0
+  const scheduleDraft = useCallback(() => {
+    window.clearTimeout(draftTimer.current);
+    draftTimer.current = window.setTimeout(() => {
+      const { title: t, tagIds: ids } = latest.current;
+      api.draftSave(kbId, cardId ?? 0, t, content.current.json, ids).catch(() => {});
+    }, 2000);
+  }, [kbId, cardId]);
+  const dropDraft = useCallback(() => {
+    window.clearTimeout(draftTimer.current);
+    api.draftDelete(kbId, cardId ?? 0).catch(() => {});
+  }, [kbId, cardId]);
+  const markDirty = () => {
+    setDirty(true);
+    scheduleDraft();
+  };
 
   const loadTags = useCallback(() => api.tagList(kbId).then(setAllTags), [kbId]);
 
   useEffect(() => {
+    let cancelled = false;
     loadTags().catch((e) => message.error(errMsg(e)));
     setDirty(false);
+    setPendingDraft(null);
     forceVersion.current = false;
     if (cardId === null) {
       setTitle('');
       setTagIds([]);
       content.current = { json: '', text: '' };
       setInitial('');
-      return;
+      api
+        .draftGet(kbId, 0)
+        .then((d) => {
+          if (!cancelled && d) setPendingDraft(d);
+        })
+        .catch(() => {});
+    } else {
+      setInitial(null);
+      api
+        .cardGet(cardId)
+        .then((c) => {
+          if (cancelled) return;
+          setTitle(c.title);
+          setTagIds(c.tags.map((t) => t.id));
+          content.current = { json: c.contentJson, text: '' };
+          setInitial(c.contentJson);
+          // 草稿比卡片更新才有意义;否则是已保存后残留的旧草稿,直接清掉
+          return api.draftGet(kbId, cardId).then((d) => {
+            if (!d || cancelled) return;
+            if (d.updatedAt > c.updatedAt) setPendingDraft(d);
+            else api.draftDelete(kbId, cardId).catch(() => {});
+          });
+        })
+        .catch((e) => message.error(errMsg(e)));
     }
-    setInitial(null);
-    api
-      .cardGet(cardId)
-      .then((c) => {
-        setTitle(c.title);
-        setTagIds(c.tags.map((t) => t.id));
-        content.current = { json: c.contentJson, text: '' };
-        setInitial(c.contentJson);
-      })
-      .catch((e) => message.error(errMsg(e)));
-  }, [cardId, loadTags, message]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(draftTimer.current);
+    };
+  }, [kbId, cardId, loadTags, message]);
 
   const save = useCallback(async () => {
     setSaving(true);
@@ -69,11 +111,13 @@ export default function CardEditor() {
       const { json, text } = content.current;
       if (cardId === null) {
         const c = await api.cardCreate(kbId, title, json, text, tagIds);
+        dropDraft();
         message.success('已创建');
         nav(`/kb/${kbId}/card/${c.id}`, { replace: true });
       } else {
         await api.cardUpdate(cardId, title, json, text, tagIds, forceVersion.current);
         forceVersion.current = false;
+        dropDraft();
         message.success('已保存');
         setSavedRevision((revision) => revision + 1);
       }
@@ -83,7 +127,7 @@ export default function CardEditor() {
     } finally {
       setSaving(false);
     }
-  }, [cardId, kbId, title, tagIds, nav, message]);
+  }, [cardId, kbId, title, tagIds, nav, message, dropDraft]);
 
   // Ctrl+S 保存
   useEffect(() => {
@@ -115,9 +159,26 @@ export default function CardEditor() {
     setInitial(v.contentJson);
     setEditorRev((n) => n + 1);
     forceVersion.current = true;
-    setDirty(true);
+    markDirty();
     setHistoryOpen(false);
     message.info('已载入历史版本,点击保存后生效');
+  };
+
+  // 恢复草稿:把草稿载入编辑器,仍然是未保存状态
+  const restoreDraft = (d: Draft) => {
+    setTitle(d.title);
+    setTagIds(d.tagIds.filter((id) => allTags.some((t) => t.id === id)));
+    content.current = { json: d.contentJson, text: '' };
+    setInitial(d.contentJson);
+    setEditorRev((n) => n + 1);
+    forceVersion.current = true;
+    setPendingDraft(null);
+    markDirty();
+    message.info('已恢复草稿,点击保存后生效');
+  };
+  const discardDraft = () => {
+    dropDraft();
+    setPendingDraft(null);
   };
 
   const back = () => guardNav(() => nav(`/kb/${kbId}`));
@@ -150,7 +211,7 @@ export default function CardEditor() {
             maxLength={200}
             onChange={(e) => {
               setTitle(e.target.value);
-              setDirty(true);
+              markDirty();
             }}
           />
         </Col>
@@ -162,7 +223,7 @@ export default function CardEditor() {
             size="large"
             onChange={(ids) => {
               setTagIds(ids);
-              setDirty(true);
+              markDirty();
             }}
             onTagsChanged={loadTags}
           />
@@ -184,7 +245,7 @@ export default function CardEditor() {
               }}
               onChange={(json, text) => {
                 content.current = { json, text };
-                setDirty(true);
+                markDirty();
               }}
             />
           )}
@@ -216,6 +277,31 @@ export default function CardEditor() {
       )}
 
       <Modal
+        open={pendingDraft !== null}
+        title="发现未保存的草稿"
+        width={420}
+        centered
+        closable={false}
+        maskClosable={false}
+        keyboard={false}
+        footer={
+          <ModalFooter
+            onOk={() => pendingDraft && restoreDraft(pendingDraft)}
+            onCancel={discardDraft}
+            okTip="恢复草稿"
+            cancelTip="丢弃草稿"
+          />
+        }
+      >
+        {pendingDraft && (
+          <div>
+            上次编辑未保存就退出了,草稿时间 {new Date(pendingDraft.updatedAt).toLocaleString()}
+            {pendingDraft.title ? `,标题“${pendingDraft.title}”` : ''}。是否恢复?
+          </div>
+        )}
+      </Modal>
+
+      <Modal
         open={leaveGo !== null}
         title="有未保存的修改,确定离开?"
         width={420}
@@ -227,6 +313,7 @@ export default function CardEditor() {
               const go = leaveGo;
               setLeaveGo(null);
               setUnsaved(false);
+              dropDraft();
               go?.();
             }}
             onCancel={() => setLeaveGo(null)}

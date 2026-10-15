@@ -1,8 +1,8 @@
-import { App, Input, Modal, Tag, theme, Typography } from 'antd';
+import { App, Input, Modal, Select, Tag, theme, Typography } from 'antd';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, errMsg } from '../api';
-import type { Kb, SearchHit } from '../types';
+import type { Kb, SearchHit, Tag as TagInfo } from '../types';
 import { EmptyHint } from './Hint';
 import Highlight from './Highlight';
 import { guardNav } from '../unsaved';
@@ -18,6 +18,30 @@ export default function GlobalSearch({ open, onClose }: { open: boolean; onClose
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [active, setActive] = useState(0);
   const seq = useRef(0);
+  // 筛选:选了知识库才能按标签筛(标签属于知识库)
+  const [allKbs, setAllKbs] = useState<Kb[]>([]);
+  const [kbFilter, setKbFilter] = useState<number | null>(null);
+  const [kbTags, setKbTags] = useState<TagInfo[]>([]);
+  const [tagFilter, setTagFilter] = useState<number[]>([]);
+  const filtered = kbFilter !== null;
+
+  // 打开时加载知识库列表;关闭时重置筛选
+  useEffect(() => {
+    if (!open) {
+      setKbFilter(null);
+      setTagFilter([]);
+      return;
+    }
+    api.kbList().then(setAllKbs).catch(() => {});
+  }, [open]);
+  useEffect(() => {
+    setTagFilter([]);
+    if (kbFilter === null) {
+      setKbTags([]);
+      return;
+    }
+    api.tagList(kbFilter).then(setKbTags).catch(() => setKbTags([]));
+  }, [kbFilter]);
 
   // 防抖 + 丢弃过期响应;知识库与卡片并行查询
   useEffect(() => {
@@ -30,7 +54,11 @@ export default function GlobalSearch({ open, onClose }: { open: boolean; onClose
         return;
       }
       try {
-        const [k, c] = await Promise.all([api.kbSearch(q), api.search(q)]);
+        // 有筛选时只找卡片,不再列出知识库
+        const [k, c] = await Promise.all([
+          filtered ? Promise.resolve([] as Kb[]) : api.kbSearch(q),
+          api.search(q, kbFilter, tagFilter),
+        ]);
         if (my === seq.current) {
           setKbs(k);
           setHits(c);
@@ -45,7 +73,7 @@ export default function GlobalSearch({ open, onClose }: { open: boolean; onClose
       }
     }, 250);
     return () => clearTimeout(t);
-  }, [q, open, message]);
+  }, [q, open, message, filtered, kbFilter, tagFilter]);
 
   // 知识库在前、卡片在后,与界面分组顺序一致,键盘选择按这个统一索引
   const items = useMemo<Item[]>(
@@ -123,15 +151,39 @@ export default function GlobalSearch({ open, onClose }: { open: boolean; onClose
 
   return (
     <Modal open={open} onCancel={onClose} footer={null} title="全局搜索" width={720} destroyOnClose>
-      <Input.Search
+      <Input
         autoFocus
         allowClear
         placeholder="搜索知识库、卡片标题、正文、标签(多个词用空格分隔)"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={onKeyDown}
-        onSearch={() => items[active] && go(items[active])}
+        onPressEnter={() => items[active] && go(items[active])}
       />
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <Select
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          style={{ width: 200, flex: 'none' }}
+          placeholder="全部知识库"
+          value={kbFilter}
+          onChange={(v) => setKbFilter(v ?? null)}
+          options={allKbs.map((k) => ({ value: k.id, label: k.name }))}
+        />
+        <Select
+          mode="multiple"
+          allowClear
+          maxTagCount="responsive"
+          style={{ flex: 1, minWidth: 0 }}
+          placeholder={filtered ? (kbTags.length ? '按标签筛选(含任一所选标签)' : '该知识库没有标签') : '先选择知识库再按标签筛选'}
+          disabled={!filtered || kbTags.length === 0}
+          value={tagFilter}
+          onChange={setTagFilter}
+          optionFilterProp="label"
+          options={kbTags.map((t) => ({ value: t.id, label: t.name }))}
+        />
+      </div>
       <div style={{ maxHeight: 420, overflow: 'auto', marginTop: 12 }}>
         {items.length === 0 ? (
           <EmptyHint text={q.trim() ? '无结果' : '输入关键词开始搜索'} />

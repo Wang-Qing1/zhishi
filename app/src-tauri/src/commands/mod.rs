@@ -1,5 +1,6 @@
 pub mod backup;
 pub mod card;
+pub mod draft;
 pub mod graph;
 pub mod image;
 pub mod kb;

@@ -74,6 +74,40 @@ export interface SearchHit {
   tags: Tag[];
 }
 
+export interface ImageRefCard {
+  cardId: number;
+  kbId: number;
+  kbName: string;
+  title: string;
+  /** 卡片或其所属知识库在回收站中 */
+  trashed: boolean;
+}
+
+export interface ImageInfo {
+  name: string;
+  size: number;
+  modifiedAt: number;
+  cards: ImageRefCard[];
+  versionCount: number;
+  /** 被未保存的草稿引用的数量 */
+  draftCount: number;
+}
+
+export interface Draft {
+  kbId: number;
+  /** 0 表示新建卡片的草稿 */
+  cardId: number;
+  title: string;
+  contentJson: string;
+  tagIds: number[];
+  updatedAt: number;
+}
+
+export interface CleanupResult {
+  deleted: number;
+  bytes: number;
+}
+
 export interface CardVersionSummary {
   id: number;
   cardId: number;

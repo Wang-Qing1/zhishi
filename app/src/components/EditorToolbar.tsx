@@ -38,7 +38,7 @@ import type { Editor } from '@tiptap/react';
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { api, errMsg } from '../api';
-import { readImage } from '../images';
+import { uploadImageNode } from '../images';
 import ModalFooter from './ModalFooter';
 import type { CardSummary } from '../types';
 
@@ -295,14 +295,9 @@ export default function EditorToolbar({ editor, kbId, currentCardId, preview, fu
 
   const pickImage = (file?: File) => {
     if (!file) return;
-    if (file.size > 3 * 1024 * 1024) {
-      message.warning('图片不能超过 3MB');
-      return;
-    }
     // 图片由后端落盘,正文里只存 zhishi-img:// 引用
-    readImage(file)
-      .then(({ base64, ext }) => api.imageSave(base64, ext))
-      .then((src) => c().setImage({ src }).run())
+    uploadImageNode(file)
+      .then((img) => c().insertContent({ type: 'image', attrs: img }).run())
       .catch((e) => message.error(errMsg(e)));
   };
 

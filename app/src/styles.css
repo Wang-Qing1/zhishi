@@ -30,6 +30,16 @@ body { background: #f5f6f8; }
 .char-cell { height: 30px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 6px; font-size: 16px; }
 .char-cell:hover { background: #f0f0f0; }
 .tiptap img { max-width: 100%; height: auto; border-radius: 8px; }
+/* 图片操作条:悬停或选中时显示;只读模式隐藏删除按钮 */
+.img-node { position: relative; display: inline-block; max-width: 100%; line-height: 0; vertical-align: top; }
+.img-node.selected img { outline: 2px solid #1677ff; }
+.img-bar { position: absolute; top: 6px; right: 6px; display: none; align-items: center; gap: 2px; padding: 2px; background: rgba(0, 0, 0, .55); border-radius: 8px; line-height: 1; }
+.img-node:hover .img-bar, .img-node.selected .img-bar, .img-node.menu-open .img-bar { display: flex; }
+.img-handle { position: absolute; right: 4px; bottom: 4px; width: 14px; height: 14px; display: none; background: #1677ff; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 2px rgba(0, 0, 0, .5); cursor: nwse-resize; box-sizing: border-box; }
+.img-node:hover .img-handle, .img-node.selected .img-handle { display: block; }
+.img-bar .ant-btn { color: #fff; }
+.img-bar .ant-btn:hover { color: #fff !important; background: rgba(255, 255, 255, .2) !important; }
+.is-readonly .img-edit { display: none !important; }
 .tiptap mark { border-radius: 3px; padding: 0 2px; }
 .tiptap table { border-collapse: collapse; width: 100%; margin: 8px 0; table-layout: fixed; }
 .tiptap th, .tiptap td { border: 1px solid #d9d9d9; padding: 6px 10px; vertical-align: top; position: relative; }

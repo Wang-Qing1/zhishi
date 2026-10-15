@@ -8,6 +8,7 @@ import IconBtn from './components/IconBtn';
 import CardEditor from './pages/CardEditor';
 import GraphView from './pages/GraphView';
 import KbDetail from './pages/KbDetail';
+import Images from './pages/Images';
 import KbList from './pages/KbList';
 import Trash from './pages/Trash';
 
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="/kb/:kbId/card/:cardId" element={<CardEditor />} />
           <Route path="/kb/:kbId/graph" element={<GraphView />} />
           <Route path="/trash" element={<Trash />} />
+          <Route path="/images" element={<Images />} />
         </Routes>
       </Layout.Content>
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />

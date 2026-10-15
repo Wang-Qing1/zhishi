@@ -1,4 +1,4 @@
-import { ApartmentOutlined, DeleteOutlined, EditOutlined, PlusOutlined, RestOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, DeleteOutlined, EditOutlined, PictureOutlined, PlusOutlined, RestOutlined } from '@ant-design/icons';
 import { App, Card, Col, Form, Input, Modal, Row, Tag, Tooltip, Typography } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -63,6 +63,7 @@ export default function KbList() {
             onChange={(e) => setKeyword(e.target.value)}
             style={{ width: 240 }}
           />
+          <IconBtn tip="图片管理" icon={<PictureOutlined />} onClick={() => nav('/images')} />
           <IconBtn tip="回收站" icon={<RestOutlined />} onClick={() => nav('/trash')} />
           <DataMenu />
           <IconBtn tip="新建知识库" type="primary" icon={<PlusOutlined />} onClick={() => openEdit({})} />

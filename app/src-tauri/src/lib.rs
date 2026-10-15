@@ -9,7 +9,7 @@ use std::sync::Mutex;
 
 use tauri::Manager;
 
-use commands::{backup, card, graph, image, kb, link, search, tag, trash, version};
+use commands::{backup, card, draft, graph, image, kb, link, search, tag, trash, version};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -43,6 +43,10 @@ pub fn run() {
             // 回收站中超过保留期的内容永久删除(先于图片清理,让其图片也能被回收)
             if let Err(e) = trash::purge_expired(&conn, db::now_ms() - trash::RETENTION_DAYS * trash::DAY_MS) {
                 eprintln!("回收站清理失败: {e}");
+            }
+            // 超过 30 天没有更新的草稿一并清理
+            if let Err(e) = draft::purge_older_than(&conn, db::now_ms() - trash::RETENTION_DAYS * trash::DAY_MS) {
+                eprintln!("草稿清理失败: {e}");
             }
             if let Err(e) = image::migrate_base64(&conn, &img_dir) {
                 eprintln!("图片迁移失败: {e}");
@@ -79,6 +83,9 @@ pub fn run() {
             graph::graph_reset_positions,
             search::search_global,
             image::image_save,
+            image::image_list,
+            image::image_cleanup,
+            image::image_delete,
             backup::backup_export,
             backup::backup_restore,
             trash::trash_list,
@@ -89,6 +96,9 @@ pub fn run() {
             trash::trash_empty,
             version::version_list,
             version::version_get,
+            draft::draft_save,
+            draft::draft_get,
+            draft::draft_delete,
         ])
         .run(tauri::generate_context!())
         .expect("启动知识库应用失败");

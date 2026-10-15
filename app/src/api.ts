@@ -5,7 +5,10 @@ import type {
   CardSummary,
   CardVersion,
   CardVersionSummary,
+  CleanupResult,
+  Draft,
   Graph,
+  ImageInfo,
   Kb,
   Link,
   SearchHit,
@@ -39,6 +42,12 @@ export const api = {
   versionGet: (id: number) => invoke<CardVersion>('version_get', { id }),
   cardDelete: (id: number) => invoke<void>('card_delete', { id }),
 
+  /** 草稿:cardId 为 0 表示新建卡片 */
+  draftSave: (kbId: number, cardId: number, title: string, contentJson: string, tagIds: number[]) =>
+    invoke<void>('draft_save', { kbId, cardId, title, contentJson, tagIds }),
+  draftGet: (kbId: number, cardId: number) => invoke<Draft | null>('draft_get', { kbId, cardId }),
+  draftDelete: (kbId: number, cardId: number) => invoke<void>('draft_delete', { kbId, cardId }),
+
   tagList: (kbId: number) => invoke<Tag[]>('tag_list', { kbId }),
   tagCreate: (kbId: number, name: string, color: string) => invoke<Tag>('tag_create', { kbId, name, color }),
   tagUpdate: (id: number, name: string, color: string) => invoke<Tag>('tag_update', { id, name, color }),
@@ -67,6 +76,10 @@ export const api = {
   backupRestore: (path: string) => invoke<void>('backup_restore', { path }),
 
   imageSave: (dataBase64: string, ext: string) => invoke<string>('image_save', { dataBase64, ext }),
+  imageList: () => invoke<ImageInfo[]>('image_list'),
+  imageCleanup: () => invoke<CleanupResult>('image_cleanup'),
+  /** removeRefs:图片仍被卡片/历史版本使用时为 true,会把它们正文里的这张图一并移除 */
+  imageDelete: (name: string, removeRefs: boolean) => invoke<void>('image_delete', { name, removeRefs }),
 
   search: (query: string, kbId: number | null = null, tagIds: number[] = [], limit = 50) =>
     invoke<SearchHit[]>('search_global', { query, kbId, tagIds, limit }),

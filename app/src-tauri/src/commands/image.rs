@@ -1,17 +1,19 @@
 //! 卡片图片:按内容哈希落盘到 `<app_data>/images/<sha256>.<ext>`,正文里只存 `zhishi-img://<sha256>.<ext>` 引用。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, UNIX_EPOCH};
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
+use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tauri::Manager;
+use tauri::{Manager, State};
 
+use crate::db::Db;
 use crate::error::{AppError, Result};
 
 /// 正文里图片 src 的引用前缀
@@ -177,6 +179,7 @@ fn collect_refs(conn: &Connection) -> Result<HashSet<String>> {
     // 卡片正文和历史版本里的图片都算引用
     collect_from(conn, "SELECT content_json FROM card WHERE content_json LIKE '%zhishi-img://%'", &mut set)?;
     collect_from(conn, "SELECT content_json FROM card_version WHERE content_json LIKE '%zhishi-img://%'", &mut set)?;
+    collect_from(conn, "SELECT content_json FROM card_draft WHERE content_json LIKE '%zhishi-img://%'", &mut set)?;
     Ok(set)
 }
 
@@ -185,41 +188,261 @@ fn collect_from(conn: &Connection, sql: &str, set: &mut HashSet<String>) -> Resu
     let rows = stmt.query_map([], |r| r.get::<_, Option<String>>(0))?;
     for row in rows {
         let Some(s) = row? else { continue };
-        let mut rest = s.as_str();
-        while let Some(i) = rest.find(REF_PREFIX) {
-            rest = &rest[i + REF_PREFIX.len()..];
-            let end = rest
-                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '.'))
-                .unwrap_or(rest.len());
-            let name = &rest[..end];
-            if valid_name(name) {
-                set.insert(name.to_string());
-            }
-        }
+        set.extend(ref_names(&s));
     }
     Ok(())
 }
 
-/// 清理孤儿图片:未被任何卡片引用、且修改时间早于 min_age 的文件;返回删除数
-pub fn gc(conn: &Connection, dir: &Path, min_age: Duration) -> Result<usize> {
-    let Ok(rd) = fs::read_dir(dir) else { return Ok(0) };
+/// 从一段正文 JSON 文本里提取引用的图片文件名(去重,只保留合法文件名)
+fn ref_names(s: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut rest = s;
+    while let Some(i) = rest.find(REF_PREFIX) {
+        rest = &rest[i + REF_PREFIX.len()..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '.'))
+            .unwrap_or(rest.len());
+        let name = &rest[..end];
+        if valid_name(name) && !out.iter().any(|n| n == name) {
+            out.push(name.to_string());
+        }
+    }
+    out
+}
+
+/// 清理孤儿图片:未被任何卡片/历史版本引用、且修改时间早于 min_age 的文件;返回 (删除数, 释放的字节数)
+fn sweep(conn: &Connection, dir: &Path, min_age: Duration) -> Result<(usize, u64)> {
+    let Ok(rd) = fs::read_dir(dir) else { return Ok((0, 0)) };
     let refs = collect_refs(conn)?;
-    let mut n = 0;
+    let (mut n, mut bytes) = (0usize, 0u64);
     for e in rd.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
         if !valid_name(&name) || refs.contains(&name) {
             continue;
         }
-        let old = e
-            .metadata()
-            .and_then(|m| m.modified())
-            .ok()
+        let meta = e.metadata().ok();
+        let old = meta
+            .as_ref()
+            .and_then(|m| m.modified().ok())
             .and_then(|t| t.elapsed().ok())
             .map(|d| d >= min_age)
             .unwrap_or(min_age.is_zero());
+        let size = meta.map(|m| m.len()).unwrap_or(0);
         if old && fs::remove_file(e.path()).is_ok() {
             n += 1;
+            bytes += size;
         }
     }
-    Ok(n)
+    Ok((n, bytes))
+}
+
+/// 启动时的自动清理(有保护期):返回删除数
+pub fn gc(conn: &Connection, dir: &Path, min_age: Duration) -> Result<usize> {
+    Ok(sweep(conn, dir, min_age)?.0)
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupResult {
+    pub deleted: usize,
+    pub bytes: u64,
+}
+
+/// 立即清理所有未被引用的图片(不受保护期限制)
+pub fn cleanup(conn: &Connection, dir: &Path) -> Result<CleanupResult> {
+    let (deleted, bytes) = sweep(conn, dir, Duration::ZERO)?;
+    Ok(CleanupResult { deleted, bytes })
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageRefCard {
+    pub card_id: i64,
+    pub kb_id: i64,
+    pub kb_name: String,
+    pub title: String,
+    /// 卡片或其所属知识库在回收站中
+    pub trashed: bool,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageInfo {
+    pub name: String,
+    pub size: i64,
+    pub modified_at: i64,
+    /// 引用它的卡片(含回收站中的)
+    pub cards: Vec<ImageRefCard>,
+    /// 引用它的历史版本个数
+    pub version_count: i64,
+    /// 引用它的编辑草稿个数
+    pub draft_count: i64,
+}
+
+/// 列出图片目录下的所有图片及其引用情况,最新的在前
+pub fn list(conn: &Connection, dir: &Path) -> Result<Vec<ImageInfo>> {
+    let mut map: HashMap<String, ImageInfo> = HashMap::new();
+    if let Ok(rd) = fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if !valid_name(&name) {
+                continue;
+            }
+            let Ok(meta) = e.metadata() else { continue };
+            let modified_at = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            map.insert(
+                name.clone(),
+                ImageInfo { name, size: meta.len() as i64, modified_at, cards: vec![], version_count: 0, draft_count: 0 },
+            );
+        }
+    }
+    {
+        let mut st = conn.prepare(
+            "SELECT c.id, c.kb_id, k.name, c.title, c.content_json, (c.deleted_at IS NOT NULL OR k.deleted_at IS NOT NULL)
+             FROM card c JOIN kb k ON k.id = c.kb_id WHERE c.content_json LIKE '%zhishi-img://%'",
+        )?;
+        let rows = st.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, i64>(5)? != 0,
+            ))
+        })?;
+        for row in rows {
+            let (card_id, kb_id, kb_name, title, json, trashed) = row?;
+            for name in ref_names(&json) {
+                if let Some(info) = map.get_mut(&name) {
+                    info.cards.push(ImageRefCard { card_id, kb_id, kb_name: kb_name.clone(), title: title.clone(), trashed });
+                }
+            }
+        }
+    }
+    {
+        let mut st = conn.prepare("SELECT content_json FROM card_version WHERE content_json LIKE '%zhishi-img://%'")?;
+        let rows = st.query_map([], |r| r.get::<_, String>(0))?;
+        for row in rows {
+            for name in ref_names(&row?) {
+                if let Some(info) = map.get_mut(&name) {
+                    info.version_count += 1;
+                }
+            }
+        }
+    }
+    {
+        let mut st = conn.prepare("SELECT content_json FROM card_draft WHERE content_json LIKE '%zhishi-img://%'")?;
+        let rows = st.query_map([], |r| r.get::<_, String>(0))?;
+        for row in rows {
+            for name in ref_names(&row?) {
+                if let Some(info) = map.get_mut(&name) {
+                    info.draft_count += 1;
+                }
+            }
+        }
+    }
+    let mut v: Vec<ImageInfo> = map.into_values().collect();
+    v.sort_by(|a, b| b.modified_at.cmp(&a.modified_at).then_with(|| a.name.cmp(&b.name)));
+    Ok(v)
+}
+
+fn is_image_with(n: &Value, src: &str) -> bool {
+    n.get("type").and_then(Value::as_str) == Some("image")
+        && n.pointer("/attrs/src").and_then(Value::as_str) == Some(src)
+}
+
+/// 递归移除 Tiptap JSON 中 src 为指定引用的图片节点,返回是否有改动;
+/// 容器被删空时(如只含这张图的文档/单元格)补一个空段落,保证结构仍然合法
+fn strip(v: &mut Value, src: &str) -> bool {
+    match v {
+        Value::Object(m) => {
+            let mut changed = false;
+            for (_, child) in m.iter_mut() {
+                changed |= strip(child, src);
+            }
+            changed
+        }
+        Value::Array(a) => {
+            let before = a.len();
+            a.retain(|n| !is_image_with(n, src));
+            let mut changed = a.len() != before;
+            if a.is_empty() && before > 0 {
+                a.push(serde_json::json!({ "type": "paragraph" }));
+            }
+            for child in a.iter_mut() {
+                changed |= strip(child, src);
+            }
+            changed
+        }
+        _ => false,
+    }
+}
+
+fn rows_with(conn: &Connection, table: &str, like: &str) -> Result<Vec<(i64, String)>> {
+    let mut st = conn.prepare(&format!("SELECT rowid, content_json FROM {table} WHERE content_json LIKE ?1"))?;
+    let v = st
+        .query_map([like], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(v)
+}
+
+/// 删除一张图片。图片仍被卡片/历史版本引用时,remove_refs 为真才允许删除,
+/// 并在同一个事务里把它们正文中的这张图的节点移除(文字不受影响)
+pub fn delete(conn: &Connection, dir: &Path, name: &str, remove_refs: bool) -> Result<()> {
+    if !valid_name(name) {
+        return Err(AppError::msg("图片名称无效"));
+    }
+    let src = format!("{REF_PREFIX}{name}");
+    let like = format!("%{src}%");
+    let tx = conn.unchecked_transaction()?;
+    let cards = rows_with(&tx, "card", &like)?;
+    let versions = rows_with(&tx, "card_version", &like)?;
+    let drafts = rows_with(&tx, "card_draft", &like)?;
+    if !remove_refs && (!cards.is_empty() || !versions.is_empty() || !drafts.is_empty()) {
+        return Err(AppError::msg("图片正在被卡片、历史版本或草稿使用"));
+    }
+    for (table, rows) in [("card", cards), ("card_version", versions), ("card_draft", drafts)] {
+        for (id, json) in rows {
+            let Ok(mut doc) = serde_json::from_str::<Value>(&json) else { continue };
+            if strip(&mut doc, &src) {
+                tx.execute(
+                    &format!("UPDATE {table} SET content_json = ?1 WHERE rowid = ?2"),
+                    params![doc.to_string(), id],
+                )?;
+            }
+        }
+    }
+    tx.commit()?;
+    match fs::remove_file(dir.join(name)) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(io(e)),
+    }
+}
+
+#[tauri::command(async)]
+pub fn image_list(app: tauri::AppHandle, db: State<Db>) -> Result<Vec<ImageInfo>> {
+    let dir = dir_of(&app)?;
+    let conn = db.conn()?;
+    list(&conn, &dir)
+}
+
+#[tauri::command(async)]
+pub fn image_cleanup(app: tauri::AppHandle, db: State<Db>) -> Result<CleanupResult> {
+    let dir = dir_of(&app)?;
+    let conn = db.conn()?;
+    cleanup(&conn, &dir)
+}
+
+#[tauri::command(async)]
+pub fn image_delete(app: tauri::AppHandle, db: State<Db>, name: String, remove_refs: bool) -> Result<()> {
+    let dir = dir_of(&app)?;
+    let conn = db.conn()?;
+    delete(&conn, &dir, &name, remove_refs)
 }

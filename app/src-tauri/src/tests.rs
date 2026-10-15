@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-use crate::commands::{backup, card, graph, image, kb, link, search, tag, trash, version};
+use crate::commands::{backup, card, draft, graph, image, kb, link, search, tag, trash, version};
 use crate::db;
 
 fn setup() -> Connection {
@@ -319,6 +319,170 @@ fn image_gc_keeps_images_referenced_by_versions() {
     // 卡片连同版本永久删除后,图片变成孤儿并被清理
     card::delete(&conn, c).unwrap();
     assert_eq!(image::gc(&conn, &dir, std::time::Duration::ZERO).unwrap(), 1);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+fn img_doc(names: &[&str]) -> String {
+    let nodes: Vec<serde_json::Value> = names
+        .iter()
+        .map(|n| serde_json::json!({"type": "image", "attrs": {"src": format!("{}{}", image::REF_PREFIX, n)}}))
+        .collect();
+    serde_json::json!({"type": "doc", "content": nodes}).to_string()
+}
+
+#[test]
+fn image_list_reports_refs_and_orphans() {
+    let conn = setup();
+    let dir = tmp_dir("img-list");
+    let k = kb::create(&conn, "图库", "").unwrap().id;
+    let used = image::save(&dir, b"used", "png").unwrap();
+    let in_trash = image::save(&dir, b"in-trash", "png").unwrap();
+    let only_version = image::save(&dir, b"only-version", "png").unwrap();
+    let orphan = image::save(&dir, b"orphan", "png").unwrap();
+
+    card::create(&conn, k, "正常卡片", &img_doc(&[&used]), "", &[]).unwrap();
+    let t = card::create(&conn, k, "回收站卡片", &img_doc(&[&in_trash]), "", &[]).unwrap().id;
+    card::trash(&conn, t).unwrap();
+    // 只在历史版本里出现:卡片正文已改成不含图片
+    let v = card::create(&conn, k, "有历史", &img_doc(&[&only_version]), "", &[]).unwrap().id;
+    card::update(&conn, v, "有历史", r#"{"type":"doc"}"#, "", &[]).unwrap();
+
+    let list = image::list(&conn, &dir).unwrap();
+    assert_eq!(list.len(), 4);
+    let find = |n: &str| list.iter().find(|i| i.name == n).unwrap();
+    assert_eq!(find(&used).cards.len(), 1);
+    assert_eq!(find(&used).cards[0].kb_name, "图库");
+    assert!(!find(&used).cards[0].trashed);
+    assert!(find(&in_trash).cards[0].trashed);
+    assert!(find(&only_version).cards.is_empty());
+    assert_eq!(find(&only_version).version_count, 1);
+    assert!(find(&orphan).cards.is_empty() && find(&orphan).version_count == 0);
+    assert_eq!(find(&orphan).size, "orphan".len() as i64);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn image_cleanup_ignores_age_but_keeps_referenced() {
+    let conn = setup();
+    let dir = tmp_dir("img-cleanup");
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let used = image::save(&dir, b"used", "png").unwrap();
+    let orphan = image::save(&dir, b"orphan-file", "png").unwrap();
+    card::create(&conn, k, "t", &img_doc(&[&used]), "", &[]).unwrap();
+    // 刚创建的孤儿图片也能立即清理,并报告释放的空间
+    let r = image::cleanup(&conn, &dir).unwrap();
+    assert_eq!((r.deleted, r.bytes), (1, "orphan-file".len() as u64));
+    assert!(dir.join(&used).exists());
+    assert!(!dir.join(&orphan).exists());
+    assert_eq!(image::cleanup(&conn, &dir).unwrap().deleted, 0);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn image_delete_requires_remove_refs_and_strips_nodes() {
+    let conn = setup();
+    let dir = tmp_dir("img-delete");
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let pic = image::save(&dir, b"pic", "png").unwrap();
+    let other = image::save(&dir, b"other", "png").unwrap();
+    // 卡片 A:文字 + 这张图 + 另一张图;卡片 B:只有这张图
+    let a_doc = serde_json::json!({
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "保留的文字"}]},
+            {"type": "image", "attrs": {"src": format!("{}{}", image::REF_PREFIX, pic)}},
+            {"type": "image", "attrs": {"src": format!("{}{}", image::REF_PREFIX, other)}}
+        ]
+    })
+    .to_string();
+    let a = card::create(&conn, k, "A", &a_doc, "", &[]).unwrap().id;
+    let b = card::create(&conn, k, "B", &img_doc(&[&pic]), "", &[]).unwrap().id;
+    // 给 A 制造一个包含这张图的历史版本
+    card::update(&conn, a, "A", r#"{"type":"doc"}"#, "", &[]).unwrap();
+    card::update_with(&conn, a, "A", &a_doc, "", &[], true).unwrap();
+
+    // 仍被引用且不允许连带移除:拒绝,文件和正文都不变
+    assert!(image::delete(&conn, &dir, &pic, false).is_err());
+    assert!(dir.join(&pic).exists());
+
+    image::delete(&conn, &dir, &pic, true).unwrap();
+    assert!(!dir.join(&pic).exists());
+    let content = |id: i64| -> String {
+        conn.query_row("SELECT content_json FROM card WHERE id = ?1", [id], |r| r.get(0)).unwrap()
+    };
+    // A 只剔除这张图,文字和另一张图保留
+    let ca = content(a);
+    assert!(!ca.contains(&pic) && ca.contains(&other) && ca.contains("保留的文字"));
+    // B 原本只有这张图:被补上空段落保持结构合法
+    let cb = content(b);
+    assert!(!cb.contains(&pic) && cb.contains("paragraph"));
+    // 历史版本里的引用也被移除
+    let n: i64 = conn
+        .query_row("SELECT COUNT(*) FROM card_version WHERE content_json LIKE ?1", [format!("%{pic}%")], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 0);
+    // 未引用的图片不需要 remove_refs;非法名称被拒绝
+    let lone = image::save(&dir, b"lone", "png").unwrap();
+    image::delete(&conn, &dir, &lone, false).unwrap();
+    assert!(!dir.join(&lone).exists());
+    assert!(image::delete(&conn, &dir, "../x.png", true).is_err());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn draft_save_get_overwrite_and_cleanup() {
+    let conn = setup();
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let k2 = kb::create(&conn, "k2", "").unwrap().id;
+    let c = mk_card(&conn, k, "c", "", &[]);
+
+    assert!(draft::get(&conn, k, c).unwrap().is_none());
+    draft::save(&conn, k, c, "草稿标题", r#"{"a":1}"#, &[3, 5]).unwrap();
+    // 覆盖保存同一份草稿
+    draft::save(&conn, k, c, "新标题", r#"{"a":2}"#, &[7]).unwrap();
+    let d = draft::get(&conn, k, c).unwrap().unwrap();
+    assert_eq!((d.title.as_str(), d.content_json.as_str()), ("新标题", r#"{"a":2}"#));
+    assert_eq!(d.tag_ids, vec![7]);
+    // 新建卡片的草稿(card_id = 0)与已有卡片、其他知识库互不影响
+    draft::save(&conn, k, 0, "新建", "", &[]).unwrap();
+    draft::save(&conn, k2, 0, "另一库的新建", "", &[]).unwrap();
+    assert_eq!(draft::get(&conn, k, 0).unwrap().unwrap().title, "新建");
+    assert_eq!(draft::get(&conn, k2, 0).unwrap().unwrap().title, "另一库的新建");
+    // 知识库不存在时保存失败
+    assert!(draft::save(&conn, 9999, 0, "x", "", &[]).is_err());
+
+    draft::delete(&conn, k, 0).unwrap();
+    assert!(draft::get(&conn, k, 0).unwrap().is_none());
+    // 永久删除卡片、知识库时草稿一并清理
+    card::delete(&conn, c).unwrap();
+    assert!(draft::get(&conn, k, c).unwrap().is_none());
+    kb::delete(&conn, k2).unwrap();
+    assert!(draft::get(&conn, k2, 0).unwrap().is_none());
+    // 过期清理
+    draft::save(&conn, k, 0, "旧", "", &[]).unwrap();
+    conn.execute("UPDATE card_draft SET updated_at = 1", []).unwrap();
+    assert_eq!(draft::purge_older_than(&conn, 1000).unwrap(), 1);
+    assert!(draft::get(&conn, k, 0).unwrap().is_none());
+}
+
+#[test]
+fn image_protected_and_stripped_for_drafts() {
+    let conn = setup();
+    let dir = tmp_dir("img-draft");
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let pic = image::save(&dir, b"draft-pic", "png").unwrap();
+    draft::save(&conn, k, 0, "新建", &img_doc(&[&pic]), &[]).unwrap();
+
+    // 只被草稿引用的图片不会被清理,图片管理里能看到草稿引用
+    assert_eq!(image::cleanup(&conn, &dir).unwrap().deleted, 0);
+    let info = &image::list(&conn, &dir).unwrap()[0];
+    assert_eq!((info.cards.len(), info.version_count, info.draft_count), (0, 0, 1));
+    // 不允许直接删除;连带移除时草稿里的节点也被剔除
+    assert!(image::delete(&conn, &dir, &pic, false).is_err());
+    image::delete(&conn, &dir, &pic, true).unwrap();
+    let content = draft::get(&conn, k, 0).unwrap().unwrap().content_json;
+    assert!(!content.contains(&pic));
+    assert!(!dir.join(&pic).exists());
     std::fs::remove_dir_all(&dir).ok();
 }
 

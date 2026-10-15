@@ -11,6 +11,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/002_card_position.sql"),
     include_str!("../migrations/003_trash.sql"),
     include_str!("../migrations/004_card_version.sql"),
+    include_str!("../migrations/005_card_draft.sql"),
 ];
 
 /// 当前应用支持的数据库结构版本(恢复备份时用于拒绝更新版本的备份)
