@@ -3,6 +3,7 @@ import { App, Card, Col, Form, Input, Modal, Row, Tag, Tooltip, Typography } fro
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, errMsg } from '../api';
+import DataMenu from '../components/DataMenu';
 import { EmptyHint } from '../components/Hint';
 import Confirm from '../components/Confirm';
 import IconBtn from '../components/IconBtn';
@@ -62,6 +63,7 @@ export default function KbList() {
             onChange={(e) => setKeyword(e.target.value)}
             style={{ width: 240 }}
           />
+          <DataMenu />
           <IconBtn tip="新建知识库" type="primary" icon={<PlusOutlined />} onClick={() => openEdit({})} />
         </div>
       </div>

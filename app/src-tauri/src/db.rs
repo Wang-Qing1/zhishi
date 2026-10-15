@@ -11,6 +11,11 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/002_card_position.sql"),
 ];
 
+/// 当前应用支持的数据库结构版本(恢复备份时用于拒绝更新版本的备份)
+pub fn schema_version() -> usize {
+    MIGRATIONS.len()
+}
+
 pub struct Db(pub Mutex<Connection>);
 
 impl Db {

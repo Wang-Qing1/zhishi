@@ -31,7 +31,7 @@ pub fn dir_of<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf> {
 }
 
 /// 文件名必须是 `<64位小写十六进制>.<白名单扩展名>`,同时防止路径穿越
-fn valid_name(name: &str) -> bool {
+pub fn valid_name(name: &str) -> bool {
     match name.split_once('.') {
         Some((hash, ext)) => {
             hash.len() == 64
@@ -55,7 +55,7 @@ fn mime_of(name: &str) -> &'static str {
 }
 
 /// 写入文件并返回文件名;同内容已存在则不重复写
-fn store(dir: &Path, bytes: &[u8], ext: &str) -> Result<String> {
+pub fn store(dir: &Path, bytes: &[u8], ext: &str) -> Result<String> {
     let hash: String = Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
     let name = format!("{hash}.{ext}");
     let path = dir.join(&name);

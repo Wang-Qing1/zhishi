@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-use crate::commands::{card, graph, image, kb, link, search, tag};
+use crate::commands::{backup, card, graph, image, kb, link, search, tag};
 use crate::db;
 
 fn setup() -> Connection {
@@ -81,6 +81,68 @@ fn image_gc_removes_only_orphans() {
     assert!(dir.join(&used).exists());
     assert!(!dir.join(&orphan).exists());
     std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn backup_roundtrip_restores_db_and_images() {
+    let root = tmp_dir("backup");
+    let (img_a, img_b) = (root.join("img_a"), root.join("img_b"));
+    let (zip_path, backups) = (root.join("b.zip"), root.join("app_b").join("backups"));
+    std::fs::create_dir_all(&root).unwrap();
+
+    let a = setup();
+    let k = kb::create(&a, "备份库", "").unwrap().id;
+    let pic = image::save(&img_a, b"pic", "png").unwrap();
+    let doc = serde_json::json!({
+        "type": "doc",
+        "content": [{"type": "image", "attrs": {"src": format!("{}{}", image::REF_PREFIX, pic)}}]
+    });
+    card::create(&a, k, "c", &doc.to_string(), "正文内容用于搜索", &[]).unwrap();
+    backup::export(&a, &img_a, &zip_path).unwrap();
+
+    let mut b = setup();
+    kb::create(&b, "另一个库", "").unwrap();
+    backup::restore(&mut b, &backups, &img_b, &zip_path).unwrap();
+    let names: Vec<String> = kb::list(&b).unwrap().into_iter().map(|k| k.name).collect();
+    assert_eq!(names, vec!["备份库".to_string()]);
+    assert!(img_b.join(&pic).exists());
+    // 全文索引随数据库一起恢复
+    assert_eq!(search::search(&b, "用于搜索", None, &[], 20).unwrap().len(), 1);
+    // 恢复前自动备份了原数据
+    assert_eq!(std::fs::read_dir(&backups).unwrap().count(), 1);
+    // 恢复后可继续正常写入
+    kb::create(&b, "新建", "").unwrap();
+    assert_eq!(kb::list(&b).unwrap().len(), 2);
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn backup_restore_rejects_bad_files() {
+    let root = tmp_dir("backup-bad");
+    std::fs::create_dir_all(&root).unwrap();
+    let backups = root.join("backups");
+    let imgs = root.join("imgs");
+    let mut conn = setup();
+    kb::create(&conn, "保留", "").unwrap();
+
+    // 不是 zip
+    let fake = root.join("fake.zip");
+    std::fs::write(&fake, b"nope").unwrap();
+    assert!(backup::restore(&mut conn, &backups, &imgs, &fake).is_err());
+
+    // 来自更新版本
+    let newer = root.join("newer.db");
+    {
+        let n = Connection::open(&newer).unwrap();
+        n.execute_batch("PRAGMA user_version = 999; CREATE TABLE kb(id); CREATE TABLE card(id);").unwrap();
+    }
+    let newer_zip = root.join("newer.zip");
+    backup::pack(&newer, &imgs, &newer_zip).unwrap();
+    assert!(backup::restore(&mut conn, &backups, &imgs, &newer_zip).is_err());
+
+    // 失败后当前数据不变
+    assert_eq!(kb::list(&conn).unwrap().len(), 1);
+    std::fs::remove_dir_all(&root).ok();
 }
 
 #[test]

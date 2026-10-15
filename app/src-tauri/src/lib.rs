@@ -9,11 +9,12 @@ use std::sync::Mutex;
 
 use tauri::Manager;
 
-use commands::{card, graph, image, kb, link, search, tag};
+use commands::{backup, card, graph, image, kb, link, search, tag};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         // 卡片图片:zhishi-img://<sha256>.<ext> → 读取 images 目录下的文件
         .register_uri_scheme_protocol("zhishi-img", |ctx, request| {
             let name = request.uri().path().trim_start_matches('/');
@@ -74,6 +75,8 @@ pub fn run() {
             graph::graph_reset_positions,
             search::search_global,
             image::image_save,
+            backup::backup_export,
+            backup::backup_restore,
         ])
         .run(tauri::generate_context!())
         .expect("启动知识库应用失败");
