@@ -6,3 +6,4 @@ pub mod kb;
 pub mod link;
 pub mod search;
 pub mod tag;
+pub mod trash;

@@ -25,7 +25,7 @@ pub fn row(r: &rusqlite::Row) -> rusqlite::Result<Link> {
 }
 
 fn kb_of(conn: &Connection, card_id: i64) -> Result<i64> {
-    conn.query_row("SELECT kb_id FROM card WHERE id = ?1", [card_id], |r| r.get(0))
+    conn.query_row("SELECT kb_id FROM card WHERE id = ?1 AND deleted_at IS NULL", [card_id], |r| r.get(0))
         .map_err(|_| AppError::NotFound(format!("卡片 {card_id}")))
 }
 
@@ -63,13 +63,13 @@ pub fn delete(conn: &Connection, id: i64) -> Result<()> {
 
 /// 与某卡片相关的全部关联(出入边)
 pub fn list_by_card(conn: &Connection, card_id: i64) -> Result<Vec<Link>> {
-    let mut st = conn.prepare(&format!("{SEL} WHERE l.src_id = ?1 OR l.dst_id = ?1 ORDER BY l.id"))?;
+    let mut st = conn.prepare(&format!("{SEL} WHERE (l.src_id = ?1 OR l.dst_id = ?1) AND s.deleted_at IS NULL AND d.deleted_at IS NULL ORDER BY l.id"))?;
     let rows = st.query_map([card_id], row)?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }
 
 pub fn list_by_kb(conn: &Connection, kb_id: i64) -> Result<Vec<Link>> {
-    let mut st = conn.prepare(&format!("{SEL} WHERE l.kb_id = ?1 ORDER BY l.id"))?;
+    let mut st = conn.prepare(&format!("{SEL} WHERE l.kb_id = ?1 AND s.deleted_at IS NULL AND d.deleted_at IS NULL ORDER BY l.id"))?;
     let rows = st.query_map([kb_id], row)?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }

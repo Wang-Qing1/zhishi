@@ -18,7 +18,7 @@ pub fn get_graph(conn: &Connection, kb_id: i64, focus: Option<i64>, depth: i64) 
 
     let ids: Vec<i64> = match focus {
         None => {
-            let mut st = conn.prepare("SELECT id FROM card WHERE kb_id = ?1 ORDER BY updated_at DESC LIMIT ?2")?;
+            let mut st = conn.prepare("SELECT id FROM card WHERE kb_id = ?1 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT ?2")?;
             let v = st.query_map([kb_id, MAX_NODES], |r| r.get(0))?.collect::<rusqlite::Result<Vec<i64>>>()?;
             v
         }
@@ -44,7 +44,7 @@ pub fn get_graph(conn: &Connection, kb_id: i64, focus: Option<i64>, depth: i64) 
         }
     };
 
-    let total_cards: i64 = conn.query_row("SELECT COUNT(*) FROM card WHERE kb_id = ?1", [kb_id], |r| r.get(0))?;
+    let total_cards: i64 = conn.query_row("SELECT COUNT(*) FROM card WHERE kb_id = ?1 AND deleted_at IS NULL", [kb_id], |r| r.get(0))?;
     let truncated = focus.is_none() && total_cards > MAX_NODES;
     let mut nodes = Vec::with_capacity(ids.len());
     if !ids.is_empty() {
@@ -52,7 +52,7 @@ pub fn get_graph(conn: &Connection, kb_id: i64, focus: Option<i64>, depth: i64) 
         let sql = format!(
             "SELECT c.id, c.title, p.x, p.y FROM card c
              LEFT JOIN card_position p ON p.card_id = c.id
-             WHERE c.kb_id = ?1 AND c.id IN ({id_params})"
+             WHERE c.kb_id = ?1 AND c.deleted_at IS NULL AND c.id IN ({id_params})"
         );
         let mut values = Vec::with_capacity(ids.len() + 1);
         values.push(kb_id);

@@ -74,6 +74,30 @@ export interface SearchHit {
   tags: Tag[];
 }
 
+export interface TrashedKb {
+  id: number;
+  name: string;
+  description: string;
+  deletedAt: number;
+  cardCount: number;
+}
+
+export interface TrashedCard {
+  id: number;
+  kbId: number;
+  kbName: string;
+  title: string;
+  excerpt: string;
+  deletedAt: number;
+  /** 所属知识库也在回收站里,需先恢复知识库 */
+  kbTrashed: boolean;
+}
+
+export interface TrashList {
+  kbs: TrashedKb[];
+  cards: TrashedCard[];
+}
+
 export const RELATION_TYPES = [
   { value: 'related', label: '相关' },
   { value: 'prerequisite', label: '前置' },

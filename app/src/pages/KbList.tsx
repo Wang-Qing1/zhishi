@@ -1,4 +1,4 @@
-import { ApartmentOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, DeleteOutlined, EditOutlined, PlusOutlined, RestOutlined } from '@ant-design/icons';
 import { App, Card, Col, Form, Input, Modal, Row, Tag, Tooltip, Typography } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -63,6 +63,7 @@ export default function KbList() {
             onChange={(e) => setKeyword(e.target.value)}
             style={{ width: 240 }}
           />
+          <IconBtn tip="回收站" icon={<RestOutlined />} onClick={() => nav('/trash')} />
           <DataMenu />
           <IconBtn tip="新建知识库" type="primary" icon={<PlusOutlined />} onClick={() => openEdit({})} />
         </div>
@@ -92,7 +93,7 @@ export default function KbList() {
                   <span key="d" onClick={(e) => e.stopPropagation()}>
                     <Confirm
                       title="删除知识库?"
-                      description="其下所有卡片、标签、关联将一并删除,不可恢复"
+                      description="其下所有卡片、标签、关联将一并移入回收站,30 天内可恢复"
                       okButtonProps={{ danger: true }}
                       onConfirm={() => api.kbDelete(kb.id).then(reload).catch((e) => message.error(errMsg(e)))}
                     >

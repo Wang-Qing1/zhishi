@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Card, CardPage, CardSummary, Graph, Kb, Link, SearchHit, Tag } from './types';
+import type { Card, CardPage, CardSummary, Graph, Kb, Link, SearchHit, Tag, TrashList } from './types';
 
 // 参数用 camelCase,Tauri 自动映射到 Rust 的 snake_case
 export const api = {
@@ -40,6 +40,13 @@ export const api = {
   graphSavePositions: (items: { cardId: number; x: number; y: number }[]) =>
     invoke<void>('graph_save_positions', { items }),
   graphResetPositions: (kbId: number) => invoke<void>('graph_reset_positions', { kbId }),
+
+  trashList: () => invoke<TrashList>('trash_list'),
+  trashRestoreKb: (id: number) => invoke<void>('trash_restore_kb', { id }),
+  trashRestoreCard: (id: number) => invoke<void>('trash_restore_card', { id }),
+  trashPurgeKb: (id: number) => invoke<void>('trash_purge_kb', { id }),
+  trashPurgeCard: (id: number) => invoke<void>('trash_purge_card', { id }),
+  trashEmpty: () => invoke<number>('trash_empty'),
 
   backupExport: (path: string) => invoke<void>('backup_export', { path }),
   backupRestore: (path: string) => invoke<void>('backup_restore', { path }),

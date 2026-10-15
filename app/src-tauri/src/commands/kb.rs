@@ -6,7 +6,7 @@ use crate::error::{AppError, Result};
 use crate::models::Kb;
 
 const SEL: &str = "SELECT k.id, k.name, k.description, k.created_at, k.updated_at, \
-    (SELECT COUNT(*) FROM card c WHERE c.kb_id = k.id) FROM kb k";
+    (SELECT COUNT(*) FROM card c WHERE c.kb_id = k.id AND c.deleted_at IS NULL) FROM kb k";
 
 fn row(r: &rusqlite::Row) -> rusqlite::Result<Kb> {
     Ok(Kb {
@@ -28,13 +28,13 @@ fn check_name(name: &str) -> Result<String> {
 }
 
 pub fn list(conn: &Connection) -> Result<Vec<Kb>> {
-    let mut st = conn.prepare(&format!("{SEL} ORDER BY k.updated_at DESC"))?;
+    let mut st = conn.prepare(&format!("{SEL} WHERE k.deleted_at IS NULL ORDER BY k.updated_at DESC"))?;
     let rows = st.query_map([], row)?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }
 
 pub fn get(conn: &Connection, id: i64) -> Result<Kb> {
-    conn.query_row(&format!("{SEL} WHERE k.id = ?1"), [id], row)
+    conn.query_row(&format!("{SEL} WHERE k.id = ?1 AND k.deleted_at IS NULL"), [id], row)
         .optional()?
         .ok_or_else(|| AppError::NotFound(format!("知识库 {id}")))
 }
@@ -74,7 +74,7 @@ pub fn search(conn: &Connection, query: &str, limit: i64) -> Result<Vec<Kb>> {
         conds.push(format!("(k.name LIKE ?{n} ESCAPE '\\' OR k.description LIKE ?{n} ESCAPE '\\')"));
     }
     let sql = format!(
-        "{SEL} WHERE {} ORDER BY k.updated_at DESC LIMIT {}",
+        "{SEL} WHERE k.deleted_at IS NULL AND {} ORDER BY k.updated_at DESC LIMIT {}",
         conds.join(" AND "),
         limit.clamp(1, 50)
     );
@@ -89,7 +89,31 @@ pub fn touch(conn: &Connection, id: i64) -> Result<()> {
     Ok(())
 }
 
-/// 级联删除卡片/标签/关联;FTS 行需手动清理
+/// 移入回收站(软删除);其下卡片、标签、关联原样保留,随知识库一起隐藏
+pub fn trash(conn: &Connection, id: i64) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE kb SET deleted_at = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+        params![id, now_ms()],
+    )?;
+    if n == 0 {
+        return Err(AppError::NotFound(format!("知识库 {id}")));
+    }
+    Ok(())
+}
+
+/// 从回收站恢复知识库
+pub fn restore(conn: &Connection, id: i64) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE kb SET deleted_at = NULL, updated_at = ?2 WHERE id = ?1 AND deleted_at IS NOT NULL",
+        params![id, now_ms()],
+    )?;
+    if n == 0 {
+        return Err(AppError::NotFound(format!("回收站中的知识库 {id}")));
+    }
+    Ok(())
+}
+
+/// 永久删除:级联删除卡片/标签/关联;FTS 行需手动清理
 pub fn delete(conn: &Connection, id: i64) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
     tx.execute("DELETE FROM card_fts WHERE rowid IN (SELECT id FROM card WHERE kb_id = ?1)", [id])?;
@@ -131,5 +155,5 @@ pub fn kb_update(db: State<Db>, id: i64, name: String, description: String) -> R
 #[tauri::command]
 pub fn kb_delete(db: State<Db>, id: i64) -> Result<()> {
     let conn = db.conn()?;
-    delete(&conn, id)
+    trash(&conn, id)
 }

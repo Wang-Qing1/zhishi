@@ -197,7 +197,7 @@ export default function KbDetail() {
                     {new Date(c.updatedAt).toLocaleString()}
                   </Typography.Text>
                   <span className="card-del" onClick={(e) => e.stopPropagation()}>
-                    <Confirm title="删除该卡片?" okButtonProps={{ danger: true }} onConfirm={() => delCard(c.id)}>
+                    <Confirm title="删除该卡片?将移入回收站" okButtonProps={{ danger: true }} onConfirm={() => delCard(c.id)}>
                       <IconBtn tip="删除" danger type="text" icon={<DeleteOutlined />} />
                     </Confirm>
                   </span>

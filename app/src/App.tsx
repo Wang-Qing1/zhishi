@@ -9,6 +9,7 @@ import CardEditor from './pages/CardEditor';
 import GraphView from './pages/GraphView';
 import KbDetail from './pages/KbDetail';
 import KbList from './pages/KbList';
+import Trash from './pages/Trash';
 
 export default function App() {
   const nav = useNavigate();
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="/kb/:kbId" element={<KbDetail />} />
           <Route path="/kb/:kbId/card/:cardId" element={<CardEditor />} />
           <Route path="/kb/:kbId/graph" element={<GraphView />} />
+          <Route path="/trash" element={<Trash />} />
         </Routes>
       </Layout.Content>
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />

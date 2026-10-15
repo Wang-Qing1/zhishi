@@ -29,7 +29,7 @@ pub fn search(conn: &Connection, query: &str, kb_id: Option<i64>, tag_ids: &[i64
         return Ok(vec![]);
     }
     let limit = limit.clamp(1, 200);
-    let mut filters = tag::filter_sql(tag_ids);
+    let mut filters = format!("{} AND c.deleted_at IS NULL AND k.deleted_at IS NULL", tag::filter_sql(tag_ids));
     if let Some(k) = kb_id {
         filters.push_str(&format!(" AND c.kb_id = {k}"));
     }

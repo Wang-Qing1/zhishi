@@ -25,7 +25,7 @@ fn row_offset(r: &rusqlite::Row, offset: usize) -> rusqlite::Result<Tag> {
 /// 知识库内所有标签(含使用次数)
 pub fn list(conn: &Connection, kb_id: i64) -> Result<Vec<Tag>> {
     let mut st = conn.prepare(
-        "SELECT t.id, t.kb_id, t.name, t.color, (SELECT COUNT(*) FROM card_tag ct WHERE ct.tag_id = t.id)
+        "SELECT t.id, t.kb_id, t.name, t.color, (SELECT COUNT(*) FROM card_tag ct JOIN card c ON c.id = ct.card_id WHERE ct.tag_id = t.id AND c.deleted_at IS NULL)
          FROM tag t WHERE t.kb_id = ?1 ORDER BY t.name",
     )?;
     let rows = st.query_map([kb_id], row)?.collect::<rusqlite::Result<Vec<_>>>()?;
@@ -60,7 +60,7 @@ pub fn of_cards(conn: &Connection, card_ids: &[i64]) -> Result<HashMap<i64, Vec<
 
 fn get(conn: &Connection, id: i64) -> Result<Tag> {
     conn.query_row(
-        "SELECT id, kb_id, name, color, (SELECT COUNT(*) FROM card_tag WHERE tag_id = tag.id) FROM tag WHERE id = ?1",
+        "SELECT id, kb_id, name, color, (SELECT COUNT(*) FROM card_tag ct JOIN card c ON c.id = ct.card_id WHERE ct.tag_id = tag.id AND c.deleted_at IS NULL) FROM tag WHERE id = ?1",
         [id],
         row,
     )

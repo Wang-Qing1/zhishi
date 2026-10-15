@@ -43,7 +43,7 @@ pub fn reindex(conn: &Connection, card_id: i64) -> Result<()> {
         "INSERT INTO card_fts(rowid, title, content_text, tags)
          SELECT c.id, c.title, c.content_text,
                 COALESCE((SELECT group_concat(t.name, ' ') FROM card_tag ct JOIN tag t ON t.id = ct.tag_id WHERE ct.card_id = c.id), '')
-         FROM card c WHERE c.id = ?1",
+         FROM card c WHERE c.id = ?1 AND c.deleted_at IS NULL",
         [card_id],
     )?;
     Ok(())
@@ -52,14 +52,14 @@ pub fn reindex(conn: &Connection, card_id: i64) -> Result<()> {
 /// 只查卡片所属知识库(不读正文和标签);卡片不存在返回 None
 fn find_kb_id(conn: &Connection, id: i64) -> Result<Option<i64>> {
     Ok(conn
-        .query_row("SELECT kb_id FROM card WHERE id = ?1", [id], |r| r.get(0))
+        .query_row("SELECT kb_id FROM card WHERE id = ?1 AND deleted_at IS NULL", [id], |r| r.get(0))
         .optional()?)
 }
 
 pub fn get(conn: &Connection, id: i64) -> Result<Card> {
     let mut card = conn
         .query_row(
-            "SELECT id, kb_id, title, content_json, created_at, updated_at FROM card WHERE id = ?1",
+            "SELECT id, kb_id, title, content_json, created_at, updated_at FROM card WHERE id = ?1 AND deleted_at IS NULL",
             [id],
             |r| {
                 Ok(Card {
@@ -124,6 +124,40 @@ pub fn update(
     get(conn, id)
 }
 
+/// 移入回收站(软删除):保留关联/标签/位置,仅从全文索引中移除
+pub fn trash(conn: &Connection, id: i64) -> Result<()> {
+    let kb_id = find_kb_id(conn, id)?.ok_or_else(|| AppError::NotFound(format!("卡片 {id}")))?;
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("UPDATE card SET deleted_at = ?2 WHERE id = ?1", params![id, now_ms()])?;
+    tx.execute("DELETE FROM card_fts WHERE rowid = ?1", [id])?;
+    kb::touch(&tx, kb_id)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// 从回收站恢复卡片;所属知识库也在回收站时需先恢复知识库
+pub fn restore(conn: &Connection, id: i64) -> Result<()> {
+    let (kb_id, kb_trashed): (i64, bool) = conn
+        .query_row(
+            "SELECT c.kb_id, k.deleted_at IS NOT NULL FROM card c JOIN kb k ON k.id = c.kb_id
+             WHERE c.id = ?1 AND c.deleted_at IS NOT NULL",
+            [id],
+            |r| Ok((r.get(0)?, r.get::<_, i64>(1)? != 0)),
+        )
+        .optional()?
+        .ok_or_else(|| AppError::NotFound(format!("回收站中的卡片 {id}")))?;
+    if kb_trashed {
+        return Err(AppError::msg("请先恢复所属知识库"));
+    }
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("UPDATE card SET deleted_at = NULL WHERE id = ?1", [id])?;
+    reindex(&tx, id)?;
+    kb::touch(&tx, kb_id)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// 永久删除(清空回收站/过期清理用);用户点“删除”走 trash
 pub fn delete(conn: &Connection, id: i64) -> Result<()> {
     let kb_id = find_kb_id(conn, id)?;
     let tx = conn.unchecked_transaction()?;
@@ -148,7 +182,7 @@ pub fn list_page(
     let keyword = keyword.trim();
     let escaped = keyword.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
     let pattern = format!("%{escaped}%");
-    let filters = tag::filter_sql(tag_ids);
+    let filters = format!("{} AND c.deleted_at IS NULL", tag::filter_sql(tag_ids));
     let total = conn.query_row(
         &format!(
             "SELECT COUNT(*) FROM card c
@@ -196,7 +230,7 @@ pub fn backlinks(conn: &Connection, kb_id: i64, card_id: i64) -> Result<Vec<Card
     let mut st = conn.prepare(
         "SELECT id, kb_id, title, substr(content_text, 1, 120), updated_at, content_json
          FROM card
-         WHERE kb_id = ?1 AND id != ?2 AND content_json LIKE ?3
+         WHERE kb_id = ?1 AND id != ?2 AND deleted_at IS NULL AND content_json LIKE ?3
          ORDER BY updated_at DESC, id DESC",
     )?;
     let candidates = st
@@ -263,7 +297,7 @@ pub fn card_update(
 #[tauri::command]
 pub fn card_delete(db: State<Db>, id: i64) -> Result<()> {
     let conn = db.conn()?;
-    delete(&conn, id)
+    trash(&conn, id)
 }
 
 #[tauri::command(async)]

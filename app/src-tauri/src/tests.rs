@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-use crate::commands::{backup, card, graph, image, kb, link, search, tag};
+use crate::commands::{backup, card, graph, image, kb, link, search, tag, trash};
 use crate::db;
 
 fn setup() -> Connection {
@@ -143,6 +143,112 @@ fn backup_restore_rejects_bad_files() {
     // 失败后当前数据不变
     assert_eq!(kb::list(&conn).unwrap().len(), 1);
     std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn trash_card_hides_everywhere_and_restores() {
+    let conn = setup();
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let t = tag::create(&conn, k, "标签一", "#f00").unwrap().id;
+    let a = mk_card(&conn, k, "A", "独特正文内容", &[t]);
+    let b = mk_card(&conn, k, "B", "", &[]);
+    link::create(&conn, a, b, "related", "").unwrap();
+
+    card::trash(&conn, a).unwrap();
+    // 列表/详情/更新/搜索/关联/地图/计数都看不到
+    assert!(card::get(&conn, a).is_err());
+    assert!(card::update(&conn, a, "x", "", "", &[]).is_err());
+    assert_eq!(card::list_page(&conn, k, &[], "", 0, 50).unwrap().total, 1);
+    assert!(search::search(&conn, "独特正文", None, &[], 20).unwrap().is_empty());
+    assert!(search::search(&conn, "正文", None, &[], 20).unwrap().is_empty());
+    assert!(link::list_by_card(&conn, b).unwrap().is_empty());
+    assert!(link::list_by_kb(&conn, k).unwrap().is_empty());
+    assert!(link::create(&conn, a, b, "cites", "").is_err());
+    let g = graph::get_graph(&conn, k, None, 0).unwrap();
+    assert_eq!((g.nodes.len(), g.edges.len()), (1, 0));
+    assert_eq!(tag::list(&conn, k).unwrap()[0].card_count, 0);
+    assert_eq!(kb::get(&conn, k).unwrap().card_count, 1);
+    // 标签改名不会把回收站卡片重新写入索引
+    tag::update(&conn, t, "标签二", "#f00").unwrap();
+    assert!(search::search(&conn, "独特正文", None, &[], 20).unwrap().is_empty());
+    let listed = trash::list(&conn).unwrap();
+    assert_eq!((listed.kbs.len(), listed.cards.len()), (0, 1));
+    assert_eq!(listed.cards[0].id, a);
+    assert!(!listed.cards[0].kb_trashed);
+
+    card::restore(&conn, a).unwrap();
+    assert!(card::get(&conn, a).is_ok());
+    assert_eq!(search::search(&conn, "独特正文", None, &[], 20).unwrap().len(), 1);
+    assert_eq!(link::list_by_card(&conn, b).unwrap().len(), 1);
+    assert_eq!(kb::get(&conn, k).unwrap().card_count, 2);
+    assert_eq!(tag::list(&conn, k).unwrap()[0].card_count, 1);
+    assert!(trash::list(&conn).unwrap().cards.is_empty());
+    // 不在回收站的卡片不能“恢复”或“永久删除”
+    assert!(card::restore(&conn, a).is_err());
+    assert!(trash::purge_card(&conn, a).is_err());
+}
+
+#[test]
+fn trash_kb_hides_and_restore_rules() {
+    let conn = setup();
+    let k = kb::create(&conn, "回收库", "").unwrap().id;
+    let c1 = mk_card(&conn, k, "c1", "独特内容一", &[]);
+    mk_card(&conn, k, "c2", "独特内容二", &[]);
+    card::trash(&conn, c1).unwrap();
+    kb::trash(&conn, k).unwrap();
+
+    assert!(kb::list(&conn).unwrap().is_empty());
+    assert!(kb::get(&conn, k).is_err());
+    assert!(kb::search(&conn, "回收库", 10).unwrap().is_empty());
+    assert!(search::search(&conn, "独特内容", None, &[], 20).unwrap().is_empty());
+    assert!(kb::trash(&conn, k).is_err());
+    let listed = trash::list(&conn).unwrap();
+    assert_eq!(listed.kbs.len(), 1);
+    assert_eq!(listed.kbs[0].card_count, 1);
+    assert!(listed.cards[0].kb_trashed);
+    // 知识库还在回收站时不能单独恢复卡片
+    assert!(card::restore(&conn, c1).is_err());
+
+    kb::restore(&conn, k).unwrap();
+    assert_eq!(kb::list(&conn).unwrap().len(), 1);
+    assert_eq!(search::search(&conn, "独特内容", None, &[], 20).unwrap().len(), 1);
+    card::restore(&conn, c1).unwrap();
+    assert_eq!(search::search(&conn, "独特内容", None, &[], 20).unwrap().len(), 2);
+}
+
+#[test]
+fn trash_purge_expiry_and_empty() {
+    let conn = setup();
+    let k1 = kb::create(&conn, "k1", "").unwrap().id;
+    let k2 = kb::create(&conn, "k2", "").unwrap().id;
+    let old_card = mk_card(&conn, k2, "old", "", &[]);
+    let new_card = mk_card(&conn, k2, "new", "", &[]);
+    mk_card(&conn, k1, "in-k1", "独特内容", &[]);
+    kb::trash(&conn, k1).unwrap();
+    card::trash(&conn, old_card).unwrap();
+    card::trash(&conn, new_card).unwrap();
+    // 把 k1 和 old_card 的删除时间改成很久以前
+    conn.execute("UPDATE kb SET deleted_at = 1 WHERE id = ?1", [k1]).unwrap();
+    conn.execute("UPDATE card SET deleted_at = 1 WHERE id = ?1", [old_card]).unwrap();
+
+    assert_eq!(trash::purge_expired(&conn, 1000).unwrap(), 2);
+    let left = trash::list(&conn).unwrap();
+    assert_eq!((left.kbs.len(), left.cards.len()), (0, 1));
+    assert_eq!(left.cards[0].id, new_card);
+    // 永久删除后卡片、全文索引都已清理
+    let n: i64 = conn.query_row("SELECT COUNT(*) FROM card", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 1);
+    let n: i64 = conn.query_row("SELECT COUNT(*) FROM card_fts", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 0);
+
+    // 手动永久删除、清空
+    let k3 = kb::create(&conn, "k3", "").unwrap().id;
+    kb::trash(&conn, k3).unwrap();
+    trash::purge_kb(&conn, k3).unwrap();
+    assert!(trash::purge_kb(&conn, k2).is_err());
+    assert_eq!(trash::purge_expired(&conn, i64::MAX).unwrap(), 1);
+    assert!(trash::list(&conn).unwrap().cards.is_empty());
+    assert_eq!(kb::list(&conn).unwrap().len(), 1);
 }
 
 #[test]

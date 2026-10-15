@@ -9,7 +9,7 @@ use std::sync::Mutex;
 
 use tauri::Manager;
 
-use commands::{backup, card, graph, image, kb, link, search, tag};
+use commands::{backup, card, graph, image, kb, link, search, tag, trash};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -40,6 +40,10 @@ pub fn run() {
             // 图片目录:旧 base64 图片一次性迁移为文件;清理超过 1 天的孤儿图片(失败不影响启动)
             let img_dir = image::dir_of(app.handle())?;
             std::fs::create_dir_all(&img_dir)?;
+            // 回收站中超过保留期的内容永久删除(先于图片清理,让其图片也能被回收)
+            if let Err(e) = trash::purge_expired(&conn, db::now_ms() - trash::RETENTION_DAYS * trash::DAY_MS) {
+                eprintln!("回收站清理失败: {e}");
+            }
             if let Err(e) = image::migrate_base64(&conn, &img_dir) {
                 eprintln!("图片迁移失败: {e}");
             }
@@ -77,6 +81,12 @@ pub fn run() {
             image::image_save,
             backup::backup_export,
             backup::backup_restore,
+            trash::trash_list,
+            trash::trash_restore_kb,
+            trash::trash_restore_card,
+            trash::trash_purge_kb,
+            trash::trash_purge_card,
+            trash::trash_empty,
         ])
         .run(tauri::generate_context!())
         .expect("启动知识库应用失败");
