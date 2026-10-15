@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-use crate::commands::{backup, card, graph, image, kb, link, search, tag, trash};
+use crate::commands::{backup, card, graph, image, kb, link, search, tag, trash, version};
 use crate::db;
 
 fn setup() -> Connection {
@@ -249,6 +249,77 @@ fn trash_purge_expiry_and_empty() {
     assert_eq!(trash::purge_expired(&conn, i64::MAX).unwrap(), 1);
     assert!(trash::list(&conn).unwrap().cards.is_empty());
     assert_eq!(kb::list(&conn).unwrap().len(), 1);
+}
+
+#[test]
+fn version_snapshot_throttle_and_prune() {
+    let conn = setup();
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let c = card::create(&conn, k, "t", r#"{"a":0}"#, "", &[]).unwrap().id;
+    let count = |conn: &Connection| version::list(conn, c).unwrap().len();
+
+    // 第一次更新:旧内容入版本
+    card::update(&conn, c, "t", r#"{"a":1}"#, "", &[]).unwrap();
+    assert_eq!(count(&conn), 1);
+    let first = version::list(&conn, c).unwrap()[0].id;
+    assert_eq!(version::get(&conn, first).unwrap().content_json, r#"{"a":0}"#);
+    // 间隔不足 10 分钟:不再建版本
+    card::update(&conn, c, "t", r#"{"a":2}"#, "", &[]).unwrap();
+    assert_eq!(count(&conn), 1);
+    // force:不受间隔限制,保存的是更新前的内容
+    card::update_with(&conn, c, "t", r#"{"a":3}"#, "", &[], true).unwrap();
+    assert_eq!(count(&conn), 2);
+    assert_eq!(version::list(&conn, c).unwrap()[0].title, "t");
+    let newest = version::list(&conn, c).unwrap()[0].id;
+    assert_eq!(version::get(&conn, newest).unwrap().content_json, r#"{"a":2}"#);
+
+    // 间隔超过 10 分钟后再保存:建版本
+    conn.execute("UPDATE card_version SET saved_at = 0", []).unwrap();
+    conn.execute("UPDATE card SET updated_at = 700000 WHERE id = ?1", [c]).unwrap();
+    card::update(&conn, c, "t", r#"{"a":4}"#, "", &[]).unwrap();
+    assert_eq!(count(&conn), 3);
+    // 标题和正文都没变(只改标签等):不建版本
+    card::update_with(&conn, c, "t", r#"{"a":4}"#, "", &[], true).unwrap();
+    assert_eq!(count(&conn), 3);
+
+    // 空内容的卡片不建版本
+    let empty = mk_card(&conn, k, "e", "", &[]);
+    card::update_with(&conn, empty, "e2", r#"{"a":1}"#, "", &[], true).unwrap();
+    assert!(version::list(&conn, empty).unwrap().is_empty());
+
+    // 每张卡片最多保留 50 个,保留最新的
+    for i in 0..60 {
+        card::update_with(&conn, c, "t", &format!(r#"{{"a":{}}}"#, 100 + i), "", &[], true).unwrap();
+    }
+    let all = version::list(&conn, c).unwrap();
+    assert_eq!(all.len(), 50);
+    assert!(all[0].id > all[1].id);
+    assert!(version::get(&conn, first).is_err());
+
+    // 删除卡片级联删除版本
+    card::delete(&conn, c).unwrap();
+    assert_eq!(count(&conn), 0);
+}
+
+#[test]
+fn image_gc_keeps_images_referenced_by_versions() {
+    let conn = setup();
+    let dir = tmp_dir("gc-version");
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let pic = image::save(&dir, b"old-pic", "png").unwrap();
+    let old = serde_json::json!({
+        "type": "doc",
+        "content": [{"type": "image", "attrs": {"src": format!("{}{}", image::REF_PREFIX, pic)}}]
+    });
+    let c = card::create(&conn, k, "t", &old.to_string(), "", &[]).unwrap().id;
+    // 新内容不再引用这张图,但它还在历史版本里
+    card::update(&conn, c, "t", r#"{"type":"doc"}"#, "", &[]).unwrap();
+    assert_eq!(image::gc(&conn, &dir, std::time::Duration::ZERO).unwrap(), 0);
+    assert!(dir.join(&pic).exists());
+    // 卡片连同版本永久删除后,图片变成孤儿并被清理
+    card::delete(&conn, c).unwrap();
+    assert_eq!(image::gc(&conn, &dir, std::time::Duration::ZERO).unwrap(), 1);
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

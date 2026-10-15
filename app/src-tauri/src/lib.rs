@@ -9,7 +9,7 @@ use std::sync::Mutex;
 
 use tauri::Manager;
 
-use commands::{backup, card, graph, image, kb, link, search, tag, trash};
+use commands::{backup, card, graph, image, kb, link, search, tag, trash, version};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -87,6 +87,8 @@ pub fn run() {
             trash::trash_purge_kb,
             trash::trash_purge_card,
             trash::trash_empty,
+            version::version_list,
+            version::version_get,
         ])
         .run(tauri::generate_context!())
         .expect("启动知识库应用失败");

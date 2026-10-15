@@ -1,5 +1,17 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Card, CardPage, CardSummary, Graph, Kb, Link, SearchHit, Tag, TrashList } from './types';
+import type {
+  Card,
+  CardPage,
+  CardSummary,
+  CardVersion,
+  CardVersionSummary,
+  Graph,
+  Kb,
+  Link,
+  SearchHit,
+  Tag,
+  TrashList,
+} from './types';
 
 // 参数用 camelCase,Tauri 自动映射到 Rust 的 snake_case
 export const api = {
@@ -20,8 +32,11 @@ export const api = {
   cardGet: (id: number) => invoke<Card>('card_get', { id }),
   cardCreate: (kbId: number, title: string, contentJson: string, contentText: string, tagIds: number[]) =>
     invoke<Card>('card_create', { kbId, title, contentJson, contentText, tagIds }),
-  cardUpdate: (id: number, title: string, contentJson: string, contentText: string, tagIds: number[]) =>
-    invoke<Card>('card_update', { id, title, contentJson, contentText, tagIds }),
+  /** forceVersion:恢复历史版本后保存时为 true,保证被覆盖的内容一定留下版本 */
+  cardUpdate: (id: number, title: string, contentJson: string, contentText: string, tagIds: number[], forceVersion = false) =>
+    invoke<Card>('card_update', { id, title, contentJson, contentText, tagIds, forceVersion }),
+  versionList: (cardId: number) => invoke<CardVersionSummary[]>('version_list', { cardId }),
+  versionGet: (id: number) => invoke<CardVersion>('version_get', { id }),
   cardDelete: (id: number) => invoke<void>('card_delete', { id }),
 
   tagList: (kbId: number) => invoke<Tag[]>('tag_list', { kbId }),

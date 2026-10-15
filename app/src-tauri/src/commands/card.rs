@@ -2,7 +2,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 use tauri::State;
 
-use crate::commands::{kb, tag};
+use crate::commands::{kb, tag, version};
 use crate::db::{now_ms, Db};
 use crate::error::{AppError, Result};
 use crate::models::{Card, CardPage, CardSummary};
@@ -110,12 +110,34 @@ pub fn update(
     content_text: &str,
     tag_ids: &[i64],
 ) -> Result<Card> {
-    let kb_id = find_kb_id(conn, id)?.ok_or_else(|| AppError::NotFound(format!("卡片 {id}")))?;
+    update_with(conn, id, title, content_json, content_text, tag_ids, false)
+}
+
+/// 更新卡片;同时把旧内容存为历史版本(force_version 为真时不受版本间隔限制)
+pub fn update_with(
+    conn: &Connection,
+    id: i64,
+    title: &str,
+    content_json: &str,
+    content_text: &str,
+    tag_ids: &[i64],
+    force_version: bool,
+) -> Result<Card> {
+    let (kb_id, old_title, old_json, old_saved_at): (i64, String, String, i64) = conn
+        .query_row(
+            "SELECT kb_id, title, content_json, updated_at FROM card WHERE id = ?1 AND deleted_at IS NULL",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?
+        .ok_or_else(|| AppError::NotFound(format!("卡片 {id}")))?;
     let tx = conn.unchecked_transaction()?;
     let now = now_ms();
+    let new_title = norm_title(title);
+    version::snapshot(&tx, id, &old_title, &old_json, old_saved_at, &new_title, content_json, force_version)?;
     tx.execute(
         "UPDATE card SET title = ?2, content_json = ?3, content_text = ?4, updated_at = ?5 WHERE id = ?1",
-        params![id, norm_title(title), content_json, content_text, now],
+        params![id, new_title, content_json, content_text, now],
     )?;
     tag::set_tags(&tx, id, kb_id, tag_ids)?;
     reindex(&tx, id)?;
@@ -289,9 +311,10 @@ pub fn card_update(
     content_json: String,
     content_text: String,
     tag_ids: Vec<i64>,
+    force_version: Option<bool>,
 ) -> Result<Card> {
     let conn = db.conn()?;
-    update(&conn, id, &title, &content_json, &content_text, &tag_ids)
+    update_with(&conn, id, &title, &content_json, &content_text, &tag_ids, force_version.unwrap_or(false))
 }
 
 #[tauri::command]

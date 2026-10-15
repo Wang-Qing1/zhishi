@@ -1,4 +1,4 @@
-import { ApartmentOutlined, ArrowLeftOutlined, SaveOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, ArrowLeftOutlined, HistoryOutlined, SaveOutlined } from '@ant-design/icons';
 import { App, Badge, Card, Col, Input, Modal, Row, Space, Tooltip } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -9,7 +9,8 @@ import LinkPanel from '../components/LinkPanel';
 import ModalFooter from '../components/ModalFooter';
 import RichEditor from '../components/RichEditor';
 import TagSelector from '../components/TagSelector';
-import type { Tag } from '../types';
+import VersionHistory from '../components/VersionHistory';
+import type { CardVersion, Tag } from '../types';
 import { guardNav, registerUnsavedAsk, setUnsaved } from '../unsaved';
 
 export default function CardEditor() {
@@ -27,6 +28,11 @@ export default function CardEditor() {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [savedRevision, setSavedRevision] = useState(0);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // 恢复历史版本后递增,用于重建编辑器
+  const [editorRev, setEditorRev] = useState(0);
+  // 刚从历史版本恢复、尚未保存:保存时要求后端一定留下被覆盖内容的版本
+  const forceVersion = useRef(false);
   // 待确认的跳转动作;非空时显示“离开?”弹窗
   const [leaveGo, setLeaveGo] = useState<(() => void) | null>(null);
   // 编辑器内容放 ref,避免每次按键触发整页重渲染
@@ -37,6 +43,7 @@ export default function CardEditor() {
   useEffect(() => {
     loadTags().catch((e) => message.error(errMsg(e)));
     setDirty(false);
+    forceVersion.current = false;
     if (cardId === null) {
       setTitle('');
       setTagIds([]);
@@ -65,7 +72,8 @@ export default function CardEditor() {
         message.success('已创建');
         nav(`/kb/${kbId}/card/${c.id}`, { replace: true });
       } else {
-        await api.cardUpdate(cardId, title, json, text, tagIds);
+        await api.cardUpdate(cardId, title, json, text, tagIds, forceVersion.current);
+        forceVersion.current = false;
         message.success('已保存');
         setSavedRevision((revision) => revision + 1);
       }
@@ -100,6 +108,18 @@ export default function CardEditor() {
     };
   }, []);
 
+  // 把历史版本载入编辑器:标题和正文被替换,标记为未保存,用户点保存后才真正生效
+  const restoreVersion = (v: CardVersion) => {
+    setTitle(v.title);
+    content.current = { json: v.contentJson, text: '' };
+    setInitial(v.contentJson);
+    setEditorRev((n) => n + 1);
+    forceVersion.current = true;
+    setDirty(true);
+    setHistoryOpen(false);
+    message.info('已载入历史版本,点击保存后生效');
+  };
+
   const back = () => guardNav(() => nav(`/kb/${kbId}`));
 
   return (
@@ -113,6 +133,7 @@ export default function CardEditor() {
             </Tooltip>
           )}
           <IconBtn tip="保存 (Ctrl+S)" type="primary" icon={<SaveOutlined />} loading={saving} onClick={save} />
+          {cardId !== null && <IconBtn tip="历史版本" icon={<HistoryOutlined />} onClick={() => setHistoryOpen(true)} />}
           {cardId !== null && (
             <IconBtn tip="在地图中查看" icon={<ApartmentOutlined />} onClick={() => guardNav(() => nav(`/kb/${kbId}/graph?focus=${cardId}`))} />
           )}
@@ -153,7 +174,7 @@ export default function CardEditor() {
         <Col xs={24} lg={16} className="fill" style={{ height: '100%' }}>
           {initial !== null && (
             <RichEditor
-              key={cardId ?? 'new'}
+              key={`${cardId ?? 'new'}-${editorRev}`}
               initial={initial}
               kbId={kbId}
               currentCardId={cardId ?? undefined}
@@ -183,6 +204,16 @@ export default function CardEditor() {
           </Card>
         </Col>
       </Row>
+
+      {cardId !== null && (
+        <VersionHistory
+          open={historyOpen}
+          cardId={cardId}
+          dirty={dirty}
+          onClose={() => setHistoryOpen(false)}
+          onRestore={restoreVersion}
+        />
+      )}
 
       <Modal
         open={leaveGo !== null}

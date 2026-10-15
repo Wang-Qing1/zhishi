@@ -174,7 +174,14 @@ pub fn migrate_base64(conn: &Connection, dir: &Path) -> Result<usize> {
 /// 所有卡片正文中引用到的图片文件名
 fn collect_refs(conn: &Connection) -> Result<HashSet<String>> {
     let mut set = HashSet::new();
-    let mut stmt = conn.prepare("SELECT content_json FROM card WHERE content_json LIKE '%zhishi-img://%'")?;
+    // 卡片正文和历史版本里的图片都算引用
+    collect_from(conn, "SELECT content_json FROM card WHERE content_json LIKE '%zhishi-img://%'", &mut set)?;
+    collect_from(conn, "SELECT content_json FROM card_version WHERE content_json LIKE '%zhishi-img://%'", &mut set)?;
+    Ok(set)
+}
+
+fn collect_from(conn: &Connection, sql: &str, set: &mut HashSet<String>) -> Result<()> {
+    let mut stmt = conn.prepare(sql)?;
     let rows = stmt.query_map([], |r| r.get::<_, Option<String>>(0))?;
     for row in rows {
         let Some(s) = row? else { continue };
@@ -190,7 +197,7 @@ fn collect_refs(conn: &Connection) -> Result<HashSet<String>> {
             }
         }
     }
-    Ok(set)
+    Ok(())
 }
 
 /// 清理孤儿图片:未被任何卡片引用、且修改时间早于 min_age 的文件;返回删除数

@@ -74,6 +74,18 @@ export interface SearchHit {
   tags: Tag[];
 }
 
+export interface CardVersionSummary {
+  id: number;
+  cardId: number;
+  title: string;
+  /** 该版本内容当时被保存的时间 */
+  savedAt: number;
+}
+
+export interface CardVersion extends CardVersionSummary {
+  contentJson: string;
+}
+
 export interface TrashedKb {
   id: number;
   name: string;

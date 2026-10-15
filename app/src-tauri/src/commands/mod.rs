@@ -7,3 +7,4 @@ pub mod link;
 pub mod search;
 pub mod tag;
 pub mod trash;
+pub mod version;

@@ -170,6 +170,8 @@ fn restore_from(
     }
     // 旧版本备份需要补齐迁移
     db::init(conn)?;
+    // 早期备份里的 base64 图片也转成文件引用
+    image::migrate_base64(conn, img_dir)?;
 
     // 图片:只增不删;文件名必须合法以防止 zip 路径穿越
     for i in 0..zip.len() {

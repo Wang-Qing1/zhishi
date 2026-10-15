@@ -16,6 +16,24 @@ import type { MouseEvent } from 'react';
 import { CardImage } from '../images';
 import EditorToolbar from './EditorToolbar';
 
+/** 编辑器与只读预览共用的扩展(不含占位提示) */
+export function contentExtensions() {
+  return [
+    StarterKit,
+    Underline,
+    TextStyle,
+    Color,
+    Highlight.configure({ multicolor: true }),
+    TextAlign.configure({ types: ['heading', 'paragraph'] }),
+    CardImage,
+    Table.configure({ resizable: true }),
+    TableRow,
+    TableHeader,
+    TableCell,
+    Link.configure({ openOnClick: false, protocols: [{ scheme: 'zhishi-card', optionalSlashes: true }] }),
+  ];
+}
+
 export function parseContent(json: string) {
   if (!json) return '';
   try {
@@ -41,21 +59,7 @@ export default function RichEditor({ initial, kbId, currentCardId, onOpenCard, o
   const [preview, setPreview] = useState(false);
 
   const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Underline,
-      TextStyle,
-      Color,
-      Highlight.configure({ multicolor: true }),
-      TextAlign.configure({ types: ['heading', 'paragraph'] }),
-      CardImage,
-      Table.configure({ resizable: true }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      Link.configure({ openOnClick: false, protocols: [{ scheme: 'zhishi-card', optionalSlashes: true }] }),
-      Placeholder.configure({ placeholder: '在此编写知识内容…' }),
-    ],
+    extensions: [...contentExtensions(), Placeholder.configure({ placeholder: '在此编写知识内容…' })],
     content: parseContent(initial),
     onCreate: ({ editor }) => onReady?.(JSON.stringify(editor.getJSON()), editor.getText({ blockSeparator: '\n' })),
     onUpdate: ({ editor }) => onChange(JSON.stringify(editor.getJSON()), editor.getText({ blockSeparator: '\n' })),
