@@ -7,6 +7,7 @@ import {
   EditOutlined,
   FullscreenOutlined,
   LinkOutlined,
+  PlusOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
 import {
@@ -16,6 +17,7 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  useReactFlow,
   useEdgesState,
   useNodesState,
   type Connection,
@@ -23,7 +25,7 @@ import {
   type Node,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { App, Dropdown, InputNumber, Modal, Select, Space, Typography } from 'antd';
+import { App, Dropdown, Input, InputNumber, Modal, Select, Space, Typography } from 'antd';
 import type { MenuProps } from 'antd';
 import dagre from 'dagre';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -34,7 +36,9 @@ import Hint from '../components/Hint';
 import IconBtn from '../components/IconBtn';
 import CardModal from '../components/CardModal';
 import ModalFooter from '../components/ModalFooter';
-import type { Graph } from '../types';
+import RichEditor from '../components/RichEditor';
+import TagSelector from '../components/TagSelector';
+import type { Graph, Tag } from '../types';
 import { RELATION_TYPES, relationLabel } from '../types';
 
 const W = 180;
@@ -150,6 +154,7 @@ function layout(g: Graph, focusId: number | null): { nodes: Node[]; edges: Edge[
         borderRadius: 8,
         fontSize: 13,
         background: n.id === focusId ? '#fffbe6' : '#fff',
+        cursor: 'move',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
@@ -176,6 +181,7 @@ function Inner() {
   const focus = sp.get('focus') ? Number(sp.get('focus')) : null;
   const { message } = App.useApp();
   const nav = useNavigate();
+  const { screenToFlowPosition } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [depth, setDepth] = useState(2);
@@ -185,13 +191,36 @@ function Inner() {
   const [truncated, setTruncated] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
   const [graph, setGraph] = useState<Graph | null>(null);
-  // 右键菜单(屏幕坐标 + 节点 id)与“添加关联”弹窗
-  const [ctx, setCtx] = useState<{ x: number; y: number; id: number } | null>(null);
+  // 右键菜单(屏幕坐标 + 画布坐标 + 可选节点 id)与“添加关联”弹窗
+  const [ctx, setCtx] = useState<{ x: number; y: number; position: Pos; id?: number } | null>(null);
+  const [createPosition, setCreatePosition] = useState<Pos | null>(null);
+  const [newTitle, setNewTitle] = useState('');
+  const [newTagIds, setNewTagIds] = useState<number[]>([]);
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [creating, setCreating] = useState(false);
+  const newContent = useRef({ json: '', text: '' });
   const [addFrom, setAddFrom] = useState<number | null>(null);
   const [addTo, setAddTo] = useState<number>();
   const [cardOpts, setCardOpts] = useState<{ value: number; label: string }[]>([]);
   const [cardQuery, setCardQuery] = useState('');
   const searchSeq = useRef(0);
+
+  const contextPosition = (x: number, y: number): Pos => {
+    const p = screenToFlowPosition({ x, y });
+    return { x: p.x - W / 2, y: p.y - H / 2 };
+  };
+
+  const loadTags = useCallback(async () => {
+    try {
+      setAllTags(await api.tagList(kbId));
+    } catch (e) {
+      message.error(errMsg(e));
+    }
+  }, [kbId, message]);
+
+  useEffect(() => {
+    loadTags();
+  }, [loadTags]);
 
   const load = useCallback(async () => {
     try {
@@ -229,9 +258,14 @@ function Inner() {
     }
   };
 
-  const menuItems = (id: number): MenuProps['items'] => {
+  const menuItems = (id?: number): MenuProps['items'] => {
+    if (id === undefined) {
+      return [{ key: 'create', icon: <PlusOutlined />, label: '新建卡片' }];
+    }
     const mine = (graph?.edges ?? []).filter((l) => l.srcId === id || l.dstId === id);
     return [
+      { key: 'create', icon: <PlusOutlined />, label: '新建卡片' },
+      { type: 'divider' },
       { key: 'edit', icon: <EditOutlined />, label: '编辑卡片' },
       { key: 'focus', icon: <ApartmentOutlined />, label: '聚焦子图' },
       { key: 'link', icon: <LinkOutlined />, label: '添加关联…' },
@@ -290,13 +324,46 @@ function Inner() {
   };
 
   const onMenu: MenuProps['onClick'] = ({ key }) => {
-    const id = ctx?.id;
+    const context = ctx;
     setCtx(null);
+    if (key === 'create' && context) {
+      setNewTitle('');
+      setNewTagIds([]);
+      newContent.current = { json: '', text: '' };
+      setCreatePosition(context.position);
+      return;
+    }
+    const id = context?.id;
     if (id === undefined) return;
     if (key === 'edit') setOpenId(id);
     else if (key === 'focus') setSp({ focus: String(id) });
     else if (key === 'link') openAddLink(id);
     else if (key.startsWith('del:')) askDelLink(Number(key.slice(4)));
+  };
+
+  const createCard = async () => {
+    if (!createPosition || creating) return;
+    if (!newTitle.trim()) {
+      message.error('请输入卡片标题');
+      return;
+    }
+    setCreating(true);
+    try {
+      const card = await api.cardCreate(kbId, newTitle, newContent.current.json, newContent.current.text, newTagIds);
+      try {
+        await api.graphSavePositions([{ cardId: card.id, ...createPosition }]);
+      } catch (e) {
+        message.error(`卡片已创建，但保存地图位置失败：${errMsg(e)}`);
+      }
+      setCreatePosition(null);
+      message.success('已创建');
+      if (focus !== null) setSp({});
+      else await load();
+    } catch (e) {
+      message.error(errMsg(e));
+    } finally {
+      setCreating(false);
+    }
   };
 
   const savePositions = (ns: Node[]) =>
@@ -339,7 +406,7 @@ function Inner() {
               全图已达 1500 节点上限，仅显示最近更新的卡片
             </Typography.Text>
           )}
-          <Hint text={`${focus ? '聚焦子图' : '全图'}(${count} 个节点${truncated ? '，已达 1500 节点上限，仅显示最近更新的卡片' : ''}) · 单击节点打开卡片 · 右键节点打开菜单(编辑、聚焦子图、添加/删除关联) · 拖动节点右侧圆点到另一节点建立关联 · 单击连线删除`} />
+          <Hint text={`${focus ? '聚焦子图' : '全图'}(${count} 个节点${truncated ? '，已达 1500 节点上限，仅显示最近更新的卡片' : ''}) · 单击节点打开卡片 · 右键地图或节点新建卡片，右键节点还可编辑、聚焦子图、添加/删除关联 · 拖动节点右侧圆点到另一节点建立关联 · 单击连线删除`} />
         </Space>
         <Space wrap>
           <Confirm title="重新自动排列?已保存的手动位置将被清除" onConfirm={resetLayout}>
@@ -364,9 +431,21 @@ function Inner() {
           onNodeClick={(_, n) => setOpenId(Number(n.id))}
           onNodeContextMenu={(e, n) => {
             e.preventDefault();
-            setCtx({ x: e.clientX, y: e.clientY, id: Number(n.id) });
+            setCtx({
+              x: e.clientX,
+              y: e.clientY,
+              position: contextPosition(e.clientX, e.clientY),
+              id: Number(n.id),
+            });
           }}
-          onPaneContextMenu={(e) => e.preventDefault()}
+          onPaneContextMenu={(e) => {
+            e.preventDefault();
+            setCtx({
+              x: e.clientX,
+              y: e.clientY,
+              position: contextPosition(e.clientX, e.clientY),
+            });
+          }}
           onEdgeClick={delEdge}
           onNodeDragStop={(_, __, ns) => savePositions(ns)}
           onSelectionDragStop={(_, ns) => savePositions(ns)}
@@ -417,6 +496,43 @@ function Inner() {
             onSearch={setCardQuery}
             onChange={setAddTo}
             options={cardOpts}
+          />
+        </Space>
+      </Modal>
+      <Modal
+        open={createPosition !== null}
+        title="新建卡片"
+        width={880}
+        centered
+        destroyOnClose
+        maskClosable={false}
+        onCancel={() => setCreatePosition(null)}
+        footer={<ModalFooter onOk={createCard} onCancel={() => setCreatePosition(null)} okTip={creating ? '正在创建' : '创建'} />}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Input
+            size="large"
+            placeholder="卡片标题"
+            value={newTitle}
+            maxLength={200}
+            onChange={(e) => setNewTitle(e.target.value)}
+          />
+          <TagSelector
+            kbId={kbId}
+            allTags={allTags}
+            value={newTagIds}
+            onChange={setNewTagIds}
+            onTagsChanged={loadTags}
+          />
+          <RichEditor
+            key={createPosition ? `${createPosition.x},${createPosition.y}` : 'new'}
+            initial=""
+            onReady={(json, text) => {
+              newContent.current = { json, text };
+            }}
+            onChange={(json, text) => {
+              newContent.current = { json, text };
+            }}
           />
         </Space>
       </Modal>

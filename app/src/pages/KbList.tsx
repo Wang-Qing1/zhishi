@@ -1,5 +1,5 @@
-import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
-import { App, Card, Col, Form, Input, Modal, Row, Tag, Typography } from 'antd';
+import { ApartmentOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
+import { App, Card, Col, Form, Input, Modal, Row, Tag, Tooltip, Typography } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, errMsg } from '../api';
@@ -83,6 +83,9 @@ export default function KbList() {
                 }
                 onClick={() => nav(`/kb/${kb.id}`)}
                 actions={[
+                  <Tooltip key="g" title="知识地图">
+                    <ApartmentOutlined onClick={(e) => { e.stopPropagation(); nav(`/kb/${kb.id}/graph`); }} />
+                  </Tooltip>,
                   <EditOutlined key="e" onClick={(e) => { e.stopPropagation(); openEdit(kb); }} />,
                   <span key="d" onClick={(e) => e.stopPropagation()}>
                     <Confirm
