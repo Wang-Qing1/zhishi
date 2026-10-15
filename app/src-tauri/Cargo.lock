@@ -4382,9 +4382,11 @@ dependencies = [
 name = "zhishi"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "thiserror 1.0.69",

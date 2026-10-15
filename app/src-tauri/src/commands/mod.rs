@@ -1,5 +1,6 @@
 pub mod card;
 pub mod graph;
+pub mod image;
 pub mod kb;
 pub mod link;
 pub mod search;

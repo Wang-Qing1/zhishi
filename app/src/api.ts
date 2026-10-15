@@ -39,6 +39,8 @@ export const api = {
     invoke<void>('graph_save_positions', { items }),
   graphResetPositions: (kbId: number) => invoke<void>('graph_reset_positions', { kbId }),
 
+  imageSave: (dataBase64: string, ext: string) => invoke<string>('image_save', { dataBase64, ext }),
+
   search: (query: string, kbId: number | null = null, tagIds: number[] = [], limit = 50) =>
     invoke<SearchHit[]>('search_global', { query, kbId, tagIds, limit }),
 };

@@ -36,6 +36,8 @@ import type { ButtonProps } from 'antd';
 import type { Editor } from '@tiptap/react';
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
+import { api, errMsg } from '../api';
+import { readImage } from '../images';
 import ModalFooter from './ModalFooter';
 
 const TEXT_COLORS = ['#000000', '#e03131', '#f08c00', '#2f9e44', '#1c7ed6', '#7048e8', '#c2255c', '#868e96'];
@@ -196,9 +198,11 @@ export default function EditorToolbar({ editor, preview, fullscreen, onPreview, 
       message.warning('图片不能超过 3MB');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => c().setImage({ src: String(reader.result) }).run();
-    reader.readAsDataURL(file);
+    // 图片由后端落盘,正文里只存 zhishi-img:// 引用
+    readImage(file)
+      .then(({ base64, ext }) => api.imageSave(base64, ext))
+      .then((src) => c().setImage({ src }).run())
+      .catch((e) => message.error(errMsg(e)));
   };
 
   // 查找/链接的输入弹窗(替代系统 prompt)

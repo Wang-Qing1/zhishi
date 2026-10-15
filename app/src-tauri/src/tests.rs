@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-use crate::commands::{card, graph, kb, link, search, tag};
+use crate::commands::{card, graph, image, kb, link, search, tag};
 use crate::db;
 
 fn setup() -> Connection {
@@ -11,6 +11,76 @@ fn setup() -> Connection {
 
 fn mk_card(conn: &Connection, kb_id: i64, title: &str, text: &str, tags: &[i64]) -> i64 {
     card::create(conn, kb_id, title, "", text, tags).unwrap().id
+}
+
+fn tmp_dir(tag: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("zhishi-test-{tag}-{}-{nanos}", std::process::id()))
+}
+
+#[test]
+fn image_store_dedup_and_validation() {
+    let dir = tmp_dir("store");
+    let a = image::save(&dir, b"hello", "PNG").unwrap();
+    // 同内容去重,不同内容不同文件
+    assert_eq!(a, image::save(&dir, b"hello", ".png").unwrap());
+    assert_ne!(a, image::save(&dir, b"world", "png").unwrap());
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+    // 扩展名/空内容/超大被拒
+    assert!(image::save(&dir, b"x", "exe").is_err());
+    assert!(image::save(&dir, b"", "png").is_err());
+    assert!(image::save(&dir, &vec![0u8; 3 * 1024 * 1024 + 1], "png").is_err());
+    // 协议读取:合法文件名可读,非法/路径穿越/不存在返回 None
+    let (bytes, mime) = image::read_for_protocol(&dir, &a).unwrap();
+    assert_eq!((bytes.as_slice(), mime), (&b"hello"[..], "image/png"));
+    assert!(image::read_for_protocol(&dir, "../x.png").is_none());
+    assert!(image::read_for_protocol(&dir, "abc.png").is_none());
+    assert!(image::read_for_protocol(&dir, &format!("{}.png", "0".repeat(64))).is_none());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn image_migrate_base64_to_files() {
+    let conn = setup();
+    let dir = tmp_dir("migrate");
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let doc = serde_json::json!({
+        "type": "doc",
+        "content": [{"type": "image", "attrs": {"src": "data:image/png;base64,aGVsbG8="}}]
+    });
+    let id = card::create(&conn, k, "t", &doc.to_string(), "", &[]).unwrap().id;
+    assert_eq!(image::migrate_base64(&conn, &dir).unwrap(), 1);
+    let json: String = conn
+        .query_row("SELECT content_json FROM card WHERE id = ?1", [id], |r| r.get(0))
+        .unwrap();
+    assert!(json.contains(image::REF_PREFIX) && !json.contains("data:image"));
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    // 再次执行无可迁移内容
+    assert_eq!(image::migrate_base64(&conn, &dir).unwrap(), 0);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn image_gc_removes_only_orphans() {
+    let conn = setup();
+    let dir = tmp_dir("gc");
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let used = image::save(&dir, b"used", "png").unwrap();
+    let orphan = image::save(&dir, b"orphan", "png").unwrap();
+    let doc = serde_json::json!({
+        "type": "doc",
+        "content": [{"type": "image", "attrs": {"src": format!("{}{}", image::REF_PREFIX, used)}}]
+    });
+    card::create(&conn, k, "t", &doc.to_string(), "", &[]).unwrap();
+    // 刚创建的孤儿图片在保护期内不删
+    assert_eq!(image::gc(&conn, &dir, std::time::Duration::from_secs(86400)).unwrap(), 0);
+    assert_eq!(image::gc(&conn, &dir, std::time::Duration::ZERO).unwrap(), 1);
+    assert!(dir.join(&used).exists());
+    assert!(!dir.join(&orphan).exists());
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

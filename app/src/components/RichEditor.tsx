@@ -1,6 +1,5 @@
 import Color from '@tiptap/extension-color';
 import Highlight from '@tiptap/extension-highlight';
-import Image from '@tiptap/extension-image';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import Table from '@tiptap/extension-table';
@@ -13,6 +12,7 @@ import Underline from '@tiptap/extension-underline';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { useEffect, useState } from 'react';
+import { CardImage } from '../images';
 import EditorToolbar from './EditorToolbar';
 
 export function parseContent(json: string) {
@@ -44,7 +44,7 @@ export default function RichEditor({ initial, onChange, onReady }: Props) {
       Color,
       Highlight.configure({ multicolor: true }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
-      Image.configure({ allowBase64: true }),
+      CardImage,
       Table.configure({ resizable: true }),
       TableRow,
       TableHeader,
