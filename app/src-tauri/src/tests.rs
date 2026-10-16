@@ -542,6 +542,66 @@ fn pin_and_sort_card_list() {
 }
 
 #[test]
+fn batch_tags_and_trash() {
+    let conn = setup();
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let k2 = kb::create(&conn, "k2", "").unwrap().id;
+    let t1 = tag::create(&conn, k, "甲类标签", "#f00").unwrap().id;
+    let t2 = tag::create(&conn, k, "批量标签词", "#0f0").unwrap().id;
+    let other_tag = tag::create(&conn, k2, "其他库标签", "#00f").unwrap().id;
+    let a = mk_card(&conn, k, "A", "独特内容", &[t1]);
+    let b = mk_card(&conn, k, "B", "", &[]);
+    let c = mk_card(&conn, k, "C", "", &[]);
+    let x = mk_card(&conn, k2, "X", "", &[]);
+    conn.execute("UPDATE card SET updated_at = 5", []).unwrap();
+    let tag_ids = |id: i64| -> Vec<i64> { tag::of_card(&conn, id).unwrap().iter().map(|t| t.id).collect() };
+    let hits = || search::search(&conn, "批量标签词", None, &[], 20).unwrap().len();
+
+    // 批量加标签:已有的不重复,全文索引同步
+    card::batch_set_tags(&conn, k, &[a, b, a], &[t2], &[]).unwrap();
+    card::batch_set_tags(&conn, k, &[a, b], &[t2], &[]).unwrap();
+    assert_eq!(tag_ids(a).len(), 2);
+    assert_eq!(tag_ids(b), vec![t2]);
+    assert!(tag_ids(c).is_empty());
+    assert_eq!(hits(), 2);
+    // 不算内容修改:不动 updated_at、不生成版本
+    assert_eq!(card::get(&conn, a).unwrap().updated_at, 5);
+    assert!(version::list(&conn, a).unwrap().is_empty());
+    // 批量移标签
+    card::batch_set_tags(&conn, k, &[a, b], &[], &[t1, t2]).unwrap();
+    assert!(tag_ids(a).is_empty() && tag_ids(b).is_empty());
+    assert_eq!(hits(), 0);
+
+    // 整批失败且数据不变:混入其他知识库的卡片、其他库的标签、添加与移除重叠、空选择
+    assert!(card::batch_set_tags(&conn, k, &[a, x], &[t2], &[]).is_err());
+    assert!(tag_ids(a).is_empty());
+    assert!(card::batch_set_tags(&conn, k, &[a], &[other_tag], &[]).is_err());
+    assert!(card::batch_set_tags(&conn, k, &[a], &[t2], &[t2]).is_err());
+    assert!(card::batch_set_tags(&conn, k, &[], &[t2], &[]).is_err());
+    assert!(card::batch_set_tags(&conn, k, &[a], &[], &[]).is_err());
+    assert!(tag_ids(a).is_empty());
+
+    // 批量移入回收站:混入其他库卡片时整批失败
+    assert!(card::batch_trash(&conn, k, &[a, x]).is_err());
+    assert!(card::get(&conn, a).is_ok());
+    card::batch_set_tags(&conn, k, &[a, b], &[t2], &[]).unwrap();
+    card::batch_trash(&conn, k, &[a, b]).unwrap();
+    assert_eq!(card::list_page(&conn, k, &[], "", 0, 50).unwrap().total, 1);
+    assert_eq!(hits(), 0);
+    assert_eq!(trash::list(&conn).unwrap().cards.len(), 2);
+    // 已在回收站的卡片不能再次批量删除/改标签
+    card::restore(&conn, a).unwrap();
+    assert!(card::batch_trash(&conn, k, &[a, b]).is_err());
+    assert!(card::get(&conn, a).is_ok());
+    assert!(card::batch_set_tags(&conn, k, &[b], &[t1], &[]).is_err());
+    assert_eq!(hits(), 1);
+
+    // 超过上限被拒绝
+    let many: Vec<i64> = (1..=(card::BATCH_MAX as i64 + 1)).collect();
+    assert!(card::batch_trash(&conn, k, &many).is_err());
+}
+
+#[test]
 fn kb_crud() {
     let conn = setup();
     assert!(kb::create(&conn, "  ", "").is_err());

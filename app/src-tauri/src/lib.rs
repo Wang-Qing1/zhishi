@@ -70,6 +70,8 @@ pub fn run() {
             card::card_delete,
             card::card_list_page,
             card::card_set_pinned,
+            card::card_batch_trash,
+            card::card_batch_set_tags,
             card::card_search_titles,
             card::card_backlinks,
             tag::tag_list,

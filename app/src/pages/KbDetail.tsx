@@ -1,12 +1,32 @@
 import {
   ApartmentOutlined,
   ArrowLeftOutlined,
+  CheckOutlined,
+  CheckSquareOutlined,
+  CloseOutlined,
   DeleteOutlined,
+  MinusCircleOutlined,
   PlusOutlined,
   PushpinFilled,
   PushpinOutlined,
+  TagOutlined,
 } from '@ant-design/icons';
-import { App, Card, Col, ColorPicker, Form, Input, Modal, Pagination, Row, Select, Space, Tag, Typography } from 'antd';
+import {
+  App,
+  Card,
+  Checkbox,
+  Col,
+  ColorPicker,
+  Form,
+  Input,
+  Modal,
+  Pagination,
+  Row,
+  Select,
+  Space,
+  Tag,
+  Typography,
+} from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, errMsg } from '../api';
@@ -44,6 +64,13 @@ export default function KbDetail() {
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<CardSort>(loadSort);
   const [revision, setRevision] = useState(0);
+  // 多选模式:选中的卡片 id 跨分页保留;筛选条件改变、切换知识库时清空
+  const [multi, setMulti] = useState(false);
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  // 批量加/移标签弹窗:add 或 remove,为 null 时关闭
+  const [tagOp, setTagOp] = useState<'add' | 'remove' | null>(null);
+  const [opTagIds, setOpTagIds] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
   // 首次列表请求完成前不显示空状态提示
   const [loaded, setLoaded] = useState(false);
   const [form] = Form.useForm();
@@ -68,6 +95,19 @@ export default function KbDetail() {
   useEffect(() => {
     setPage(1);
   }, [keyword, selected, sort]);
+  // 搜索关键词或标签筛选变化后,之前选中的卡片可能已不可见,清空以免误操作
+  useEffect(() => {
+    setPicked(new Set());
+  }, [keyword, selected]);
+  // Esc 退出多选模式(标签弹窗打开时由弹窗自己处理 Esc)
+  useEffect(() => {
+    if (!multi || tagOp !== null) return;
+    const h = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') exitMulti();
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [multi, tagOp]);
   useEffect(() => {
     let active = true;
     api.cardListPage(kbId, selected, query, (page - 1) * PAGE_SIZE, PAGE_SIZE, sort)
@@ -95,6 +135,9 @@ export default function KbDetail() {
     setKeyword('');
     setQuery('');
     setPage(1);
+    setMulti(false);
+    setPicked(new Set());
+    setTagOp(null);
   }, [kbId]);
 
   const saveTag = async () => {
@@ -118,6 +161,66 @@ export default function KbDetail() {
       loadMeta();
     } catch (e) {
       message.error(errMsg(e));
+    }
+  };
+
+  const exitMulti = () => {
+    setMulti(false);
+    setPicked(new Set());
+  };
+
+  const togglePicked = (id: number) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const pickPage = () => setPicked((prev) => new Set([...prev, ...cards.map((c) => c.id)]));
+
+  // 批量操作成功后:清空选中、刷新列表和标签计数,保持多选模式
+  const afterBatch = () => {
+    setPicked(new Set());
+    setRevision((n) => n + 1);
+    loadMeta();
+  };
+
+  const batchTrash = async () => {
+    try {
+      await api.cardBatchTrash(kbId, [...picked]);
+      // 当前页的卡片被全部删完时退回上一页
+      if (page > 1 && cards.every((c) => picked.has(c.id))) setPage((p) => p - 1);
+      message.success('已移入回收站');
+      afterBatch();
+    } catch (e) {
+      message.error(errMsg(e));
+    }
+  };
+
+  const openTagOp = (op: 'add' | 'remove') => {
+    setOpTagIds([]);
+    setTagOp(op);
+  };
+
+  const confirmTagOp = async () => {
+    if (tagOp === null || busy) return;
+    if (opTagIds.length === 0) {
+      message.error('请选择标签');
+      return;
+    }
+    setBusy(true);
+    try {
+      const add = tagOp === 'add' ? opTagIds : [];
+      const remove = tagOp === 'remove' ? opTagIds : [];
+      await api.cardBatchSetTags(kbId, [...picked], add, remove);
+      message.success(tagOp === 'add' ? '已添加标签' : '已移除标签');
+      setTagOp(null);
+      afterBatch();
+    } catch (e) {
+      message.error(errMsg(e));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -204,10 +307,45 @@ export default function KbDetail() {
           />
         </div>
         <Space>
+          <IconBtn
+            tip={multi ? '退出多选 (Esc)' : '多选'}
+            type={multi ? 'primary' : 'default'}
+            icon={<CheckSquareOutlined />}
+            onClick={() => (multi ? exitMulti() : setMulti(true))}
+          />
           <IconBtn tip="知识地图" icon={<ApartmentOutlined />} onClick={() => nav(`/kb/${kbId}/graph`)} />
           <IconBtn tip="新建卡片" type="primary" icon={<PlusOutlined />} onClick={() => nav(`/kb/${kbId}/card/new`)} />
         </Space>
       </div>
+
+      {multi && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 12,
+            padding: '6px 12px',
+            background: 'var(--sel-bg)',
+            borderRadius: 16,
+          }}
+        >
+          <Typography.Text>已选 {picked.size} 张</Typography.Text>
+          <IconBtn tip="全选本页" size="small" icon={<CheckOutlined />} disabled={cards.length === 0} onClick={pickPage} />
+          <IconBtn tip="取消选择" size="small" icon={<CloseOutlined />} disabled={picked.size === 0} onClick={() => setPicked(new Set())} />
+          <div style={{ flex: 1 }} />
+          <IconBtn tip="给选中的卡片加标签" icon={<TagOutlined />} disabled={picked.size === 0} onClick={() => openTagOp('add')} />
+          <IconBtn tip="从选中的卡片移除标签" icon={<MinusCircleOutlined />} disabled={picked.size === 0} onClick={() => openTagOp('remove')} />
+          <Confirm
+            title={`将 ${picked.size} 张卡片移入回收站?30 天内可恢复`}
+            okButtonProps={{ danger: true }}
+            onConfirm={batchTrash}
+            disabled={picked.size === 0}
+          >
+            <IconBtn tip="移入回收站" danger icon={<DeleteOutlined />} disabled={picked.size === 0} />
+          </Confirm>
+        </div>
+      )}
 
       {!loaded ? null : total === 0 ? (
         <EmptyHint text={query || selected.length ? '当前筛选没有匹配的卡片' : '没有卡片,点击右上角加号新建'} />
@@ -219,10 +357,11 @@ export default function KbDetail() {
                 hoverable
                 size="small"
                 className="card-item"
-                style={{ height: '100%' }}
-                onClick={() => nav(`/kb/${kbId}/card/${c.id}`)}
+                style={{ height: '100%', borderColor: multi && picked.has(c.id) ? '#1677ff' : undefined }}
+                onClick={() => (multi ? togglePicked(c.id) : nav(`/kb/${kbId}/card/${c.id}`))}
               >
                 <Typography.Text strong ellipsis style={{ display: 'block' }}>
+                  {multi && <Checkbox checked={picked.has(c.id)} style={{ marginRight: 8, pointerEvents: 'none' }} />}
                   {c.pinned && <PushpinFilled style={{ marginRight: 6, color: '#1677ff' }} />}
                   {c.title}
                 </Typography.Text>
@@ -240,6 +379,7 @@ export default function KbDetail() {
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     {new Date(c.updatedAt).toLocaleString()}
                   </Typography.Text>
+                  {!multi && (
                   <Space size={0}>
                     {/* 已置顶的图钉常显,未置顶的和删除按钮一样悬停时才显示 */}
                     <span className={c.pinned ? undefined : 'card-del'} onClick={(e) => e.stopPropagation()}>
@@ -256,6 +396,7 @@ export default function KbDetail() {
                       </Confirm>
                     </span>
                   </Space>
+                  )}
                 </div>
               </Card>
             </Col>
@@ -272,6 +413,34 @@ export default function KbDetail() {
           style={{ marginTop: 20, textAlign: 'right' }}
         />
       )}
+
+      <Modal
+        open={tagOp !== null}
+        title={`${tagOp === 'add' ? '添加' : '移除'}标签(${picked.size} 张卡片)`}
+        width={460}
+        centered
+        destroyOnClose
+        onCancel={() => setTagOp(null)}
+        footer={
+          <ModalFooter
+            onOk={confirmTagOp}
+            onCancel={() => setTagOp(null)}
+            okTip={tagOp === 'add' ? '添加' : '移除'}
+          />
+        }
+      >
+        <Select
+          mode="multiple"
+          autoFocus
+          style={{ width: '100%' }}
+          placeholder={tags.length ? '选择标签' : '该知识库还没有标签'}
+          disabled={tags.length === 0}
+          value={opTagIds}
+          onChange={setOpTagIds}
+          optionFilterProp="label"
+          options={tags.map((t) => ({ value: t.id, label: t.name }))}
+        />
+      </Modal>
 
       <Modal
         open={!!tagEdit}

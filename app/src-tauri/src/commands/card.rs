@@ -151,11 +151,89 @@ pub fn update_with(
 
 /// 移入回收站(软删除):保留关联/标签/位置,仅从全文索引中移除
 pub fn trash(conn: &Connection, id: i64) -> Result<()> {
-    let kb_id = find_kb_id(conn, id)?.ok_or_else(|| AppError::NotFound(format!("卡片 {id}")))?;
     let tx = conn.unchecked_transaction()?;
-    tx.execute("UPDATE card SET deleted_at = ?2 WHERE id = ?1", params![id, now_ms()])?;
-    tx.execute("DELETE FROM card_fts WHERE rowid = ?1", [id])?;
-    kb::touch(&tx, kb_id)?;
+    trash_in(&tx, id)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// 移入回收站的主体,不自己开事务,供单张和批量共用
+fn trash_in(conn: &Connection, id: i64) -> Result<()> {
+    let kb_id = find_kb_id(conn, id)?.ok_or_else(|| AppError::NotFound(format!("卡片 {id}")))?;
+    conn.execute("UPDATE card SET deleted_at = ?2 WHERE id = ?1", params![id, now_ms()])?;
+    conn.execute("DELETE FROM card_fts WHERE rowid = ?1", [id])?;
+    kb::touch(conn, kb_id)?;
+    Ok(())
+}
+
+/// 单次批量操作的卡片数量上限
+pub const BATCH_MAX: usize = 500;
+
+/// 校验批量操作的卡片:非空、不超限,且全部属于该知识库且不在回收站;返回去重后的 id
+fn check_batch(conn: &Connection, kb_id: i64, card_ids: &[i64]) -> Result<Vec<i64>> {
+    let mut ids = card_ids.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    if ids.is_empty() {
+        return Err(AppError::msg("未选择卡片"));
+    }
+    if ids.len() > BATCH_MAX {
+        return Err(AppError::msg(format!("一次最多操作 {BATCH_MAX} 张卡片")));
+    }
+    for id in &ids {
+        if find_kb_id(conn, *id)? != Some(kb_id) {
+            return Err(AppError::msg(format!("卡片 {id} 不存在、已在回收站或不属于当前知识库")));
+        }
+    }
+    Ok(ids)
+}
+
+/// 批量移入回收站:同一事务,任何一张不合法则整批失败
+pub fn batch_trash(conn: &Connection, kb_id: i64, card_ids: &[i64]) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    for id in check_batch(&tx, kb_id, card_ids)? {
+        trash_in(&tx, id)?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// 批量加/移标签:同一事务;标签必须属于该知识库。
+/// 和置顶一样不算内容修改:不动 updated_at、不生成历史版本,但会重建全文索引(索引里包含标签名)
+pub fn batch_set_tags(
+    conn: &Connection,
+    kb_id: i64,
+    card_ids: &[i64],
+    add_tag_ids: &[i64],
+    remove_tag_ids: &[i64],
+) -> Result<()> {
+    if add_tag_ids.is_empty() && remove_tag_ids.is_empty() {
+        return Err(AppError::msg("未选择标签"));
+    }
+    if add_tag_ids.iter().any(|t| remove_tag_ids.contains(t)) {
+        return Err(AppError::msg("同一标签不能同时添加和移除"));
+    }
+    let tx = conn.unchecked_transaction()?;
+    let ids = check_batch(&tx, kb_id, card_ids)?;
+    for tid in add_tag_ids.iter().chain(remove_tag_ids) {
+        let ok: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM tag WHERE id = ?1 AND kb_id = ?2)",
+            params![tid, kb_id],
+            |r| r.get(0),
+        )?;
+        if !ok {
+            return Err(AppError::msg("标签不存在或不属于该知识库"));
+        }
+    }
+    for id in ids {
+        for tid in add_tag_ids {
+            tx.execute("INSERT OR IGNORE INTO card_tag(card_id, tag_id) VALUES(?1, ?2)", params![id, tid])?;
+        }
+        for tid in remove_tag_ids {
+            tx.execute("DELETE FROM card_tag WHERE card_id = ?1 AND tag_id = ?2", params![id, tid])?;
+        }
+        reindex(&tx, id)?;
+    }
     tx.commit()?;
     Ok(())
 }
@@ -377,6 +455,24 @@ pub fn card_list_page(
 ) -> Result<CardPage> {
     let conn = db.conn()?;
     list_page_sorted(&conn, kb_id, &tag_ids, &keyword, offset, limit, &sort)
+}
+
+#[tauri::command]
+pub fn card_batch_trash(db: State<Db>, kb_id: i64, card_ids: Vec<i64>) -> Result<()> {
+    let conn = db.conn()?;
+    batch_trash(&conn, kb_id, &card_ids)
+}
+
+#[tauri::command]
+pub fn card_batch_set_tags(
+    db: State<Db>,
+    kb_id: i64,
+    card_ids: Vec<i64>,
+    add_tag_ids: Vec<i64>,
+    remove_tag_ids: Vec<i64>,
+) -> Result<()> {
+    let conn = db.conn()?;
+    batch_set_tags(&conn, kb_id, &card_ids, &add_tag_ids, &remove_tag_ids)
 }
 
 #[tauri::command]

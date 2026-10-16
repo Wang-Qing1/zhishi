@@ -31,6 +31,10 @@ export const api = {
     invoke<CardPage>('card_list_page', { kbId, tagIds, keyword, offset, limit, sort }),
   /** 置顶不算内容修改:不影响更新时间和历史版本 */
   cardSetPinned: (id: number, pinned: boolean) => invoke<void>('card_set_pinned', { id, pinned }),
+  /** 批量操作在一个事务里完成,任何一张不合法则整批失败;单次最多 500 张 */
+  cardBatchTrash: (kbId: number, cardIds: number[]) => invoke<void>('card_batch_trash', { kbId, cardIds }),
+  cardBatchSetTags: (kbId: number, cardIds: number[], addTagIds: number[], removeTagIds: number[]) =>
+    invoke<void>('card_batch_set_tags', { kbId, cardIds, addTagIds, removeTagIds }),
   cardSearchTitles: (kbId: number, query: string) =>
     invoke<CardSummary[]>('card_search_titles', { kbId, query }),
   cardBacklinks: (kbId: number, cardId: number) =>
