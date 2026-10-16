@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   Card,
   CardPage,
+  CardSort,
   CardSummary,
   CardVersion,
   CardVersionSummary,
@@ -26,8 +27,10 @@ export const api = {
   kbDelete: (id: number) => invoke<void>('kb_delete', { id }),
   kbSearch: (query: string, limit = 10) => invoke<Kb[]>('kb_search', { query, limit }),
 
-  cardListPage: (kbId: number, tagIds: number[], keyword: string, offset: number, limit: number) =>
-    invoke<CardPage>('card_list_page', { kbId, tagIds, keyword, offset, limit }),
+  cardListPage: (kbId: number, tagIds: number[], keyword: string, offset: number, limit: number, sort: CardSort) =>
+    invoke<CardPage>('card_list_page', { kbId, tagIds, keyword, offset, limit, sort }),
+  /** 置顶不算内容修改:不影响更新时间和历史版本 */
+  cardSetPinned: (id: number, pinned: boolean) => invoke<void>('card_set_pinned', { id, pinned }),
   cardSearchTitles: (kbId: number, query: string) =>
     invoke<CardSummary[]>('card_search_titles', { kbId, query }),
   cardBacklinks: (kbId: number, cardId: number) =>

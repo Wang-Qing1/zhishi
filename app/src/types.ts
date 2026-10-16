@@ -22,6 +22,7 @@ export interface Card {
   contentJson: string;
   createdAt: number;
   updatedAt: number;
+  pinned: boolean;
   tags: Tag[];
 }
 
@@ -31,8 +32,18 @@ export interface CardSummary {
   title: string;
   excerpt: string;
   updatedAt: number;
+  pinned: boolean;
   tags: Tag[];
 }
+
+/** 卡片列表排序方式(置顶始终优先) */
+export type CardSort = 'updated' | 'created' | 'title';
+
+export const CARD_SORTS: { value: CardSort; label: string }[] = [
+  { value: 'updated', label: '最近更新' },
+  { value: 'created', label: '最近创建' },
+  { value: 'title', label: '标题' },
+];
 
 export interface CardPage {
   items: CardSummary[];

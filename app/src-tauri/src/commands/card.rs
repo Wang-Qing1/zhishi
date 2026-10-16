@@ -59,7 +59,7 @@ fn find_kb_id(conn: &Connection, id: i64) -> Result<Option<i64>> {
 pub fn get(conn: &Connection, id: i64) -> Result<Card> {
     let mut card = conn
         .query_row(
-            "SELECT id, kb_id, title, content_json, created_at, updated_at FROM card WHERE id = ?1 AND deleted_at IS NULL",
+            "SELECT id, kb_id, title, content_json, created_at, updated_at, pinned FROM card WHERE id = ?1 AND deleted_at IS NULL",
             [id],
             |r| {
                 Ok(Card {
@@ -69,6 +69,7 @@ pub fn get(conn: &Connection, id: i64) -> Result<Card> {
                     content_json: r.get(3)?,
                     created_at: r.get(4)?,
                     updated_at: r.get(5)?,
+                    pinned: r.get(6)?,
                     tags: vec![],
                 })
             },
@@ -195,7 +196,29 @@ pub fn delete(conn: &Connection, id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Paginated card list with optional title substring search and OR tag filtering.
+/// 置顶/取消置顶:只改 pinned,不算内容修改(不动 updated_at、不生成历史版本)
+pub fn set_pinned(conn: &Connection, id: i64, pinned: bool) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE card SET pinned = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+        params![id, pinned],
+    )?;
+    if n == 0 {
+        return Err(AppError::NotFound(format!("卡片 {id}")));
+    }
+    Ok(())
+}
+
+/// 列表排序方式(置顶始终优先);返回 ORDER BY 片段,只接受白名单值
+fn order_sql(sort: &str) -> Result<&'static str> {
+    match sort {
+        "updated" => Ok("c.updated_at DESC"),
+        "created" => Ok("c.created_at DESC"),
+        "title" => Ok("c.title COLLATE NOCASE ASC"),
+        _ => Err(AppError::msg(format!("不支持的排序方式: {sort}"))),
+    }
+}
+
+/// 按最近更新排序的列表
 pub fn list_page(
     conn: &Connection,
     kb_id: i64,
@@ -204,6 +227,20 @@ pub fn list_page(
     offset: i64,
     limit: i64,
 ) -> Result<CardPage> {
+    list_page_sorted(conn, kb_id, tag_ids, keyword, offset, limit, "updated")
+}
+
+/// Paginated card list with optional title substring search and OR tag filtering.
+pub fn list_page_sorted(
+    conn: &Connection,
+    kb_id: i64,
+    tag_ids: &[i64],
+    keyword: &str,
+    offset: i64,
+    limit: i64,
+    sort: &str,
+) -> Result<CardPage> {
+    let order = order_sql(sort)?;
     let keyword = keyword.trim();
     let escaped = keyword.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
     let pattern = format!("%{escaped}%");
@@ -217,9 +254,9 @@ pub fn list_page(
         |r| r.get(0),
     )?;
     let mut st = conn.prepare(&format!(
-        "SELECT c.id, c.kb_id, c.title, substr(c.content_text, 1, 120), c.updated_at FROM card c
+        "SELECT c.id, c.kb_id, c.title, substr(c.content_text, 1, 120), c.updated_at, c.pinned FROM card c
          WHERE c.kb_id = ?1 AND (?2 = '' OR c.title LIKE ?3 ESCAPE '\\'){filters}
-         ORDER BY c.updated_at DESC, c.id DESC LIMIT ?4 OFFSET ?5"
+         ORDER BY c.pinned DESC, {order}, c.id DESC LIMIT ?4 OFFSET ?5"
     ))?;
     let mut items = st
         .query_map(
@@ -231,6 +268,7 @@ pub fn list_page(
                     title: r.get(2)?,
                     excerpt: r.get(3)?,
                     updated_at: r.get(4)?,
+                    pinned: r.get(5)?,
                     tags: vec![],
                 })
             },
@@ -253,7 +291,7 @@ pub fn backlinks(conn: &Connection, kb_id: i64, card_id: i64) -> Result<Vec<Card
     }
 
     let mut st = conn.prepare(
-        "SELECT id, kb_id, title, substr(content_text, 1, 120), updated_at, content_json
+        "SELECT id, kb_id, title, substr(content_text, 1, 120), updated_at, content_json, pinned
          FROM card
          WHERE kb_id = ?1 AND id != ?2 AND deleted_at IS NULL AND content_json LIKE ?3
          ORDER BY updated_at DESC, id DESC",
@@ -269,6 +307,7 @@ pub fn backlinks(conn: &Connection, kb_id: i64, card_id: i64) -> Result<Vec<Card
                         title: r.get(2)?,
                         excerpt: r.get(3)?,
                         updated_at: r.get(4)?,
+                        pinned: r.get(6)?,
                         tags: vec![],
                     },
                     r.get::<_, String>(5)?,
@@ -334,9 +373,16 @@ pub fn card_list_page(
     keyword: String,
     offset: i64,
     limit: i64,
+    sort: String,
 ) -> Result<CardPage> {
     let conn = db.conn()?;
-    list_page(&conn, kb_id, &tag_ids, &keyword, offset, limit)
+    list_page_sorted(&conn, kb_id, &tag_ids, &keyword, offset, limit, &sort)
+}
+
+#[tauri::command]
+pub fn card_set_pinned(db: State<Db>, id: i64, pinned: bool) -> Result<()> {
+    let conn = db.conn()?;
+    set_pinned(&conn, id, pinned)
 }
 
 #[tauri::command]

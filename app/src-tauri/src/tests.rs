@@ -487,6 +487,61 @@ fn image_protected_and_stripped_for_drafts() {
 }
 
 #[test]
+fn pin_and_sort_card_list() {
+    let conn = setup();
+    let k = kb::create(&conn, "k", "").unwrap().id;
+    let a = mk_card(&conn, k, "banana", "", &[]);
+    let b = mk_card(&conn, k, "Apple", "", &[]);
+    let c = mk_card(&conn, k, "cherry", "", &[]);
+    // 固定时间戳,避免同一毫秒创建导致排序不确定
+    for (id, created, updated) in [(a, 1, 30), (b, 2, 10), (c, 3, 20)] {
+        conn.execute(
+            "UPDATE card SET created_at = ?2, updated_at = ?3 WHERE id = ?1",
+            rusqlite::params![id, created, updated],
+        )
+        .unwrap();
+    }
+    let ids = |sort: &str| -> Vec<i64> {
+        card::list_page_sorted(&conn, k, &[], "", 0, 50, sort).unwrap().items.iter().map(|i| i.id).collect()
+    };
+    assert_eq!(ids("updated"), vec![a, c, b]);
+    assert_eq!(ids("created"), vec![c, b, a]);
+    // 标题排序不区分大小写
+    assert_eq!(ids("title"), vec![b, a, c]);
+    assert!(card::list_page_sorted(&conn, k, &[], "", 0, 50, "id; DROP TABLE card").is_err());
+
+    // 置顶不算内容修改:不动 updated_at、不生成版本、不刷新知识库时间
+    conn.execute("UPDATE kb SET updated_at = 0", []).unwrap();
+    card::set_pinned(&conn, c, true).unwrap();
+    assert!(card::get(&conn, c).unwrap().pinned);
+    assert_eq!(card::get(&conn, c).unwrap().updated_at, 20);
+    assert_eq!(kb::get(&conn, k).unwrap().updated_at, 0);
+    assert!(version::list(&conn, c).unwrap().is_empty());
+    // 置顶卡片在任何排序下都排第一
+    assert_eq!(ids("updated"), vec![c, a, b]);
+    assert_eq!(ids("created"), vec![c, b, a]);
+    assert_eq!(ids("title"), vec![c, b, a]);
+    let page = card::list_page(&conn, k, &[], "", 0, 50).unwrap();
+    assert!(page.items[0].pinned && !page.items[1].pinned);
+    // 多张置顶:置顶组内部仍按所选排序
+    card::set_pinned(&conn, a, true).unwrap();
+    assert_eq!(ids("created"), vec![c, a, b]);
+    assert_eq!(ids("updated"), vec![a, c, b]);
+
+    // 移入回收站再恢复后仍然置顶;回收站中/不存在的卡片不能设置
+    card::trash(&conn, c).unwrap();
+    assert!(card::set_pinned(&conn, c, false).is_err());
+    assert!(card::set_pinned(&conn, 9999, true).is_err());
+    card::restore(&conn, c).unwrap();
+    assert!(card::get(&conn, c).unwrap().pinned);
+
+    // 取消置顶恢复原顺序
+    card::set_pinned(&conn, a, false).unwrap();
+    card::set_pinned(&conn, c, false).unwrap();
+    assert_eq!(ids("updated"), vec![a, c, b]);
+}
+
+#[test]
 fn kb_crud() {
     let conn = setup();
     assert!(kb::create(&conn, "  ", "").is_err());

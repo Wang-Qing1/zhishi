@@ -1,4 +1,11 @@
-import { ApartmentOutlined, ArrowLeftOutlined, HistoryOutlined, SaveOutlined } from '@ant-design/icons';
+import {
+  ApartmentOutlined,
+  ArrowLeftOutlined,
+  HistoryOutlined,
+  PushpinFilled,
+  PushpinOutlined,
+  SaveOutlined,
+} from '@ant-design/icons';
 import { App, Badge, Card, Col, Input, Modal, Row, Space, Tooltip } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -27,6 +34,8 @@ export default function CardEditor() {
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // 置顶状态点击即生效,不走“保存”流程
+  const [pinned, setPinned] = useState(false);
   const [savedRevision, setSavedRevision] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(false);
   // 恢复历史版本后递增,用于重建编辑器
@@ -68,6 +77,7 @@ export default function CardEditor() {
     loadTags().catch((e) => message.error(errMsg(e)));
     setDirty(false);
     setPendingDraft(null);
+    setPinned(false);
     forceVersion.current = false;
     if (cardId === null) {
       setTitle('');
@@ -88,6 +98,7 @@ export default function CardEditor() {
           if (cancelled) return;
           setTitle(c.title);
           setTagIds(c.tags.map((t) => t.id));
+          setPinned(c.pinned);
           content.current = { json: c.contentJson, text: '' };
           setInitial(c.contentJson);
           // 草稿比卡片更新才有意义;否则是已保存后残留的旧草稿,直接清掉
@@ -181,6 +192,16 @@ export default function CardEditor() {
     setPendingDraft(null);
   };
 
+  const togglePin = async () => {
+    if (cardId === null) return;
+    try {
+      await api.cardSetPinned(cardId, !pinned);
+      setPinned(!pinned);
+    } catch (e) {
+      message.error(errMsg(e));
+    }
+  };
+
   const back = () => guardNav(() => nav(`/kb/${kbId}`));
 
   return (
@@ -194,6 +215,13 @@ export default function CardEditor() {
             </Tooltip>
           )}
           <IconBtn tip="保存 (Ctrl+S)" type="primary" icon={<SaveOutlined />} loading={saving} onClick={save} />
+          {cardId !== null && (
+            <IconBtn
+              tip={pinned ? '取消置顶' : '置顶'}
+              icon={pinned ? <PushpinFilled style={{ color: '#1677ff' }} /> : <PushpinOutlined />}
+              onClick={togglePin}
+            />
+          )}
           {cardId !== null && <IconBtn tip="历史版本" icon={<HistoryOutlined />} onClick={() => setHistoryOpen(true)} />}
           {cardId !== null && (
             <IconBtn tip="在地图中查看" icon={<ApartmentOutlined />} onClick={() => guardNav(() => nav(`/kb/${kbId}/graph?focus=${cardId}`))} />

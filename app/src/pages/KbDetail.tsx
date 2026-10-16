@@ -1,4 +1,11 @@
-import { ApartmentOutlined, ArrowLeftOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import {
+  ApartmentOutlined,
+  ArrowLeftOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+  PushpinFilled,
+  PushpinOutlined,
+} from '@ant-design/icons';
 import { App, Card, Col, ColorPicker, Form, Input, Modal, Pagination, Row, Select, Space, Tag, Typography } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -7,9 +14,20 @@ import Hint, { EmptyHint } from '../components/Hint';
 import Confirm from '../components/Confirm';
 import IconBtn from '../components/IconBtn';
 import ModalFooter from '../components/ModalFooter';
-import type { CardSummary, Kb, Tag as TagT } from '../types';
+import { CARD_SORTS, type CardSort, type CardSummary, type Kb, type Tag as TagT } from '../types';
 
 const PAGE_SIZE = 24;
+const SORT_KEY = 'zhishi.cardSort';
+
+// 排序方式全局记住;浏览器存储不可用时用默认值
+const loadSort = (): CardSort => {
+  try {
+    const v = localStorage.getItem(SORT_KEY);
+    return CARD_SORTS.some((s) => s.value === v) ? (v as CardSort) : 'updated';
+  } catch {
+    return 'updated';
+  }
+};
 
 export default function KbDetail() {
   const kbId = Number(useParams().kbId);
@@ -24,6 +42,7 @@ export default function KbDetail() {
   const [keyword, setKeyword] = useState('');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<CardSort>(loadSort);
   const [revision, setRevision] = useState(0);
   // 首次列表请求完成前不显示空状态提示
   const [loaded, setLoaded] = useState(false);
@@ -48,10 +67,10 @@ export default function KbDetail() {
   }, [keyword]);
   useEffect(() => {
     setPage(1);
-  }, [keyword, selected]);
+  }, [keyword, selected, sort]);
   useEffect(() => {
     let active = true;
-    api.cardListPage(kbId, selected, query, (page - 1) * PAGE_SIZE, PAGE_SIZE)
+    api.cardListPage(kbId, selected, query, (page - 1) * PAGE_SIZE, PAGE_SIZE, sort)
       .then((result) => {
         if (!active) return;
         setCards(result.items);
@@ -69,7 +88,7 @@ export default function KbDetail() {
     return () => {
       active = false;
     };
-  }, [kbId, selected, query, page, revision, message]);
+  }, [kbId, selected, query, page, sort, revision, message]);
   useEffect(() => {
     setLoaded(false);
     setSelected([]);
@@ -97,6 +116,24 @@ export default function KbDetail() {
       if (cards.length === 1 && page > 1) setPage((current) => current - 1);
       setRevision((n) => n + 1);
       loadMeta();
+    } catch (e) {
+      message.error(errMsg(e));
+    }
+  };
+
+  const changeSort = (v: CardSort) => {
+    setSort(v);
+    try {
+      localStorage.setItem(SORT_KEY, v);
+    } catch {
+      /* 存储不可用时只是不记住 */
+    }
+  };
+
+  const togglePin = async (c: CardSummary) => {
+    try {
+      await api.cardSetPinned(c.id, !c.pinned);
+      setRevision((n) => n + 1);
     } catch (e) {
       message.error(errMsg(e));
     }
@@ -159,6 +196,12 @@ export default function KbDetail() {
               );
             }}
           />
+          <Select
+            value={sort}
+            onChange={changeSort}
+            style={{ width: 110 }}
+            options={CARD_SORTS.map((s) => ({ value: s.value, label: s.label }))}
+          />
         </div>
         <Space>
           <IconBtn tip="知识地图" icon={<ApartmentOutlined />} onClick={() => nav(`/kb/${kbId}/graph`)} />
@@ -180,6 +223,7 @@ export default function KbDetail() {
                 onClick={() => nav(`/kb/${kbId}/card/${c.id}`)}
               >
                 <Typography.Text strong ellipsis style={{ display: 'block' }}>
+                  {c.pinned && <PushpinFilled style={{ marginRight: 6, color: '#1677ff' }} />}
                   {c.title}
                 </Typography.Text>
                 <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }} style={{ minHeight: 44, margin: '8px 0' }}>
@@ -196,11 +240,22 @@ export default function KbDetail() {
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     {new Date(c.updatedAt).toLocaleString()}
                   </Typography.Text>
-                  <span className="card-del" onClick={(e) => e.stopPropagation()}>
-                    <Confirm title="删除该卡片?将移入回收站" okButtonProps={{ danger: true }} onConfirm={() => delCard(c.id)}>
-                      <IconBtn tip="删除" danger type="text" icon={<DeleteOutlined />} />
-                    </Confirm>
-                  </span>
+                  <Space size={0}>
+                    {/* 已置顶的图钉常显,未置顶的和删除按钮一样悬停时才显示 */}
+                    <span className={c.pinned ? undefined : 'card-del'} onClick={(e) => e.stopPropagation()}>
+                      <IconBtn
+                        tip={c.pinned ? '取消置顶' : '置顶'}
+                        type="text"
+                        icon={c.pinned ? <PushpinFilled /> : <PushpinOutlined />}
+                        onClick={() => togglePin(c)}
+                      />
+                    </span>
+                    <span className="card-del" onClick={(e) => e.stopPropagation()}>
+                      <Confirm title="删除该卡片?将移入回收站" okButtonProps={{ danger: true }} onConfirm={() => delCard(c.id)}>
+                        <IconBtn tip="删除" danger type="text" icon={<DeleteOutlined />} />
+                      </Confirm>
+                    </span>
+                  </Space>
                 </div>
               </Card>
             </Col>

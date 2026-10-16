@@ -30,6 +30,7 @@ pub struct Card {
     pub content_json: String,
     pub created_at: i64,
     pub updated_at: i64,
+    pub pinned: bool,
     pub tags: Vec<Tag>,
 }
 
@@ -41,6 +42,7 @@ pub struct CardSummary {
     pub title: String,
     pub excerpt: String,
     pub updated_at: i64,
+    pub pinned: bool,
     pub tags: Vec<Tag>,
 }
 
