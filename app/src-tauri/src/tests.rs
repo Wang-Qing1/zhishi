@@ -601,6 +601,205 @@ fn batch_tags_and_trash() {
     assert!(card::batch_trash(&conn, k, &many).is_err());
 }
 
+/// 搜索压测:在大数据量下测量各类查询的耗时,默认忽略,手动运行:
+///   cargo test --release bench_search_scale -- --ignored --nocapture
+/// 环境变量: ZHISHI_BENCH_N(卡片数,默认 20000)  ZHISHI_BENCH_LEN(每张正文字数,默认 1000)
+///           ZHISHI_BENCH_KEEP(设任意值则保留临时数据库文件)
+#[test]
+#[ignore]
+fn bench_search_scale() {
+    use rusqlite::params;
+    use std::time::Instant;
+
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            x
+        }
+        fn unit(&mut self) -> f64 {
+            (self.next() >> 11) as f64 / (1u64 << 53) as f64
+        }
+    }
+
+    let env_num = |k: &str, d: usize| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
+    let n = env_num("ZHISHI_BENCH_N", 20000);
+    let len = env_num("ZHISHI_BENCH_LEN", 1000);
+    let dir = tmp_dir("bench");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("bench.db");
+    // 用磁盘文件库(与实际应用一致:WAL、默认页缓存),不用内存库
+    let conn = db::open(&path).unwrap();
+
+    // ---- 造数据:5 个知识库,每库 4 个标签,卡片轮流分配 ----
+    let t0 = Instant::now();
+    let kbs: Vec<i64> = (0..5).map(|i| kb::create(&conn, &format!("bench-kb-{i}"), "").unwrap().id).collect();
+    let kb_tags: Vec<Vec<i64>> = kbs
+        .iter()
+        .enumerate()
+        .map(|(i, &k)| (0..4).map(|j| tag::create(&conn, k, &format!("bench-tag-{i}-{j}"), "#999").unwrap().id).collect())
+        .collect();
+    {
+        let tx = conn.unchecked_transaction().unwrap();
+        {
+            let mut ins = tx
+                .prepare("INSERT INTO card(kb_id, title, content_json, content_text, created_at, updated_at) VALUES(?1, ?2, '', ?3, ?4, ?4)")
+                .unwrap();
+            let mut link = tx.prepare("INSERT INTO card_tag(card_id, tag_id) VALUES(?1, ?2)").unwrap();
+            let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+            for i in 0..n {
+                let ki = i % 5;
+                // 正文:从 800 个汉字里按偏斜分布抽字(模拟常用字重复率高),偶尔插入标点
+                let mut text = String::with_capacity(len * 3 + 64);
+                for _ in 0..len {
+                    let u = rng.unit();
+                    text.push(char::from_u32(0x4E00 + (u * u * u * 800.0) as u32).unwrap());
+                    if rng.next() % 25 == 0 {
+                        text.push('。');
+                    }
+                }
+                // 埋入已知频率的词(这些字不在随机字范围内,不会意外命中)
+                let mut planted: Vec<&str> = Vec::new();
+                if i % 3 == 0 {
+                    planted.push("系统"); // 33%
+                }
+                if i % 10 == 1 {
+                    planted.push("数据库"); // 10%
+                }
+                if i % 20 == 2 {
+                    planted.push("架构设计"); // 5%
+                }
+                if i % 1000 == 7 {
+                    planted.push("罕见词汇"); // 0.1%
+                }
+                if i % 2000 == 11 {
+                    planted.push("稀缺"); // 0.05%
+                }
+                if !planted.is_empty() {
+                    text.push('。');
+                    text.push_str(&planted.join("。"));
+                }
+                ins.execute(params![kbs[ki], format!("卡片 {i}"), text, i as i64]).unwrap();
+                let id = tx.last_insert_rowid();
+                link.execute(params![id, kb_tags[ki][i % 4]]).unwrap();
+                card::reindex(&tx, id).unwrap();
+            }
+        }
+        tx.commit().unwrap();
+    }
+    conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).unwrap();
+    let build = t0.elapsed();
+    let mb = |p: &std::path::Path| std::fs::metadata(p).map(|m| m.len() as f64 / 1048576.0).unwrap_or(0.0);
+    println!("\n==== 搜索压测: {n} 张卡片 x 约 {len} 字 ====");
+    println!("造数据+建索引耗时 {:.1}s,数据库文件 {:.0} MB", build.as_secs_f64(), mb(&path));
+
+    // ---- 计时:首次(偏冷)+ 随后 5 次的最小/中位/最大 ----
+    let run = |name: &str, f: &dyn Fn() -> usize| {
+        let t = Instant::now();
+        let count = f();
+        let first = t.elapsed().as_secs_f64() * 1000.0;
+        let mut ts: Vec<f64> = (0..5)
+            .map(|_| {
+                let t = Instant::now();
+                f();
+                t.elapsed().as_secs_f64() * 1000.0
+            })
+            .collect();
+        ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!("{name:<30} {count:>3} 条 | 首次 {first:>8.1} ms | 最小 {:>8.1} | 中位 {:>8.1} | 最大 {:>8.1}", ts[0], ts[2], ts[4]);
+    };
+    let find = |q: &str, kb: Option<i64>, tags: &[i64]| search::search(&conn, q, kb, tags, 50).unwrap().len();
+
+    println!("-- 全局搜索 --");
+    run("1字词「系」", &|| find("系", None, &[]));
+    run("2字常见词「系统」33%", &|| find("系统", None, &[]));
+    run("2字稀有词「稀缺」0.05%", &|| find("稀缺", None, &[]));
+    run("2字无命中「龘龘」", &|| find("龘龘", None, &[]));
+    run("3字词「数据库」10%", &|| find("数据库", None, &[]));
+    run("4字词「架构设计」5%", &|| find("架构设计", None, &[]));
+    run("4字稀有「罕见词汇」0.1%", &|| find("罕见词汇", None, &[]));
+    run("长词+短词「数据库 系统」", &|| find("数据库 系统", None, &[]));
+    run("稀有长词+常见短词", &|| find("罕见词汇 系统", None, &[]));
+    run("两个短词「系统 稀缺」", &|| find("系统 稀缺", None, &[]));
+    run("2字词+限定知识库", &|| find("系统", Some(kbs[0]), &[]));
+    run("2字词+限定知识库+标签", &|| find("系统", Some(kbs[0]), &[kb_tags[0][0]]));
+
+    println!("-- 知识库页列表(对照) --");
+    run("列表第一页(无关键词)", &|| card::list_page(&conn, kbs[0], &[], "", 0, 24).unwrap().items.len());
+    run("列表按标题搜「99」", &|| card::list_page(&conn, kbs[0], &[], "99", 0, 24).unwrap().items.len());
+    run("列表按标签筛选", &|| card::list_page(&conn, kbs[0], &[kb_tags[0][0]], "", 0, 24).unwrap().items.len());
+
+    // ---- 列表页查询计划与对照写法:定位第一页的耗时来自哪里 ----
+    println!("-- card 表的索引 --");
+    {
+        let mut st = conn
+            .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'card'")
+            .unwrap();
+        let rows: Vec<(String, Option<String>)> =
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect();
+        for (name, sql) in rows {
+            println!("  {name}: {}", sql.unwrap_or_else(|| "(自动索引)".into()));
+        }
+    }
+    let list_sql = |cols: &str, order: &str| {
+        format!(
+            "SELECT {cols} FROM card c WHERE c.kb_id = ?1 AND (?2 = '' OR c.title LIKE ?3 ESCAPE '\\') AND c.deleted_at IS NULL ORDER BY {order} LIMIT ?4 OFFSET ?5"
+        )
+    };
+    let full_cols = "c.id, c.kb_id, c.title, substr(c.content_text, 1, 120), c.updated_at, c.pinned";
+    let cases = [
+        ("A 现状: pinned DESC, updated_at DESC, id DESC + 摘要列", list_sql(full_cols, "c.pinned DESC, c.updated_at DESC, c.id DESC")),
+        ("B 去掉 pinned 排序 + 摘要列", list_sql(full_cols, "c.updated_at DESC, c.id DESC")),
+        ("C 现状排序,只取 id(不读正文)", list_sql("c.id", "c.pinned DESC, c.updated_at DESC, c.id DESC")),
+        ("D 去掉 pinned 排序,只取 id", list_sql("c.id", "c.updated_at DESC, c.id DESC")),
+    ];
+    for (label, sql) in &cases {
+        println!("-- 查询计划 {label}");
+        let mut st = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let plan: Vec<String> = st
+            .query_map(params![kbs[0], "", "%%", 24, 0], |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        for p in plan {
+            println!("     {p}");
+        }
+        run(&format!("   耗时 {}", label.chars().next().unwrap()), &|| {
+            let mut st = conn.prepare(sql).unwrap();
+            st.query_map(params![kbs[0], "", "%%", 24, 0], |_| Ok(())).unwrap().count()
+        });
+    }
+    // 总数查询(列表页每次还要执行一次 COUNT)
+    let count_sql = "SELECT COUNT(*) FROM card c WHERE c.kb_id = ?1 AND (?2 = '' OR c.title LIKE ?3 ESCAPE '\\') AND c.deleted_at IS NULL";
+    println!("-- 查询计划 E 总数 COUNT(*)");
+    {
+        let mut st = conn.prepare(&format!("EXPLAIN QUERY PLAN {count_sql}")).unwrap();
+        let plan: Vec<String> = st
+            .query_map(params![kbs[0], "", "%%"], |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        for p in plan {
+            println!("     {p}");
+        }
+    }
+    run("   耗时 E", &|| {
+        conn.query_row(count_sql, params![kbs[0], "", "%%"], |r| r.get::<_, i64>(0)).unwrap() as usize
+    });
+    println!("==== 完成 ====\n");
+
+    if std::env::var("ZHISHI_BENCH_KEEP").is_err() {
+        drop(conn);
+        std::fs::remove_dir_all(&dir).ok();
+    } else {
+        println!("临时数据库已保留: {}", path.display());
+    }
+}
+
 #[test]
 fn kb_crud() {
     let conn = setup();
