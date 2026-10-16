@@ -5,7 +5,7 @@ import { Empty, Tooltip } from 'antd';
 export default function Hint({ text }: { text: string }) {
   return (
     <Tooltip title={text}>
-      <InfoCircleOutlined style={{ color: '#999', cursor: 'help' }} />
+      <InfoCircleOutlined style={{ color: 'var(--text-muted)', cursor: 'help' }} />
     </Tooltip>
   );
 }

@@ -38,6 +38,7 @@ import CardModal from '../components/CardModal';
 import ModalFooter from '../components/ModalFooter';
 import RichEditor from '../components/RichEditor';
 import TagSelector from '../components/TagSelector';
+import { useTheme } from '../theme';
 import type { Graph, Tag } from '../types';
 import { RELATION_TYPES, relationLabel } from '../types';
 
@@ -153,7 +154,8 @@ function layout(g: Graph, focusId: number | null): { nodes: Node[]; edges: Edge[
         border: `2px solid ${color}`,
         borderRadius: 8,
         fontSize: 13,
-        background: n.id === focusId ? '#fffbe6' : '#fff',
+        background: n.id === focusId ? 'var(--node-focus-bg)' : 'var(--node-bg)',
+        color: 'var(--text)',
         cursor: 'move',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
@@ -168,7 +170,7 @@ function layout(g: Graph, focusId: number | null): { nodes: Node[]; edges: Edge[
     label: relationLabel(e.relationType),
     markerEnd: { type: MarkerType.ArrowClosed, color: '#9aa5b1' },
     style: { stroke: '#9aa5b1', strokeWidth: 1.5 },
-    labelBgStyle: { fill: '#fff' },
+    labelBgStyle: { fill: 'var(--bg-surface)' },
     labelBgPadding: [6, 3] as [number, number],
     labelBgBorderRadius: 6,
   }));
@@ -181,6 +183,7 @@ function Inner() {
   const focus = sp.get('focus') ? Number(sp.get('focus')) : null;
   const { message } = App.useApp();
   const nav = useNavigate();
+  const { dark } = useTheme();
   const { screenToFlowPosition } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -449,6 +452,7 @@ function Inner() {
           onEdgeClick={delEdge}
           onNodeDragStop={(_, __, ns) => savePositions(ns)}
           onSelectionDragStop={(_, ns) => savePositions(ns)}
+          colorMode={dark ? 'dark' : 'light'}
           zoomOnDoubleClick={false}
           proOptions={{ hideAttribution: true }}
           fitView
@@ -461,7 +465,7 @@ function Inner() {
             zoomable
             nodeColor={(n) => (n.data as { color?: string }).color ?? '#999'}
             nodeStrokeWidth={0}
-            maskColor="rgba(240, 240, 240, 0.6)"
+            maskColor="var(--minimap-mask)"
             style={{ borderRadius: 12, overflow: 'hidden' }}
           />
         </ReactFlow>

@@ -172,7 +172,7 @@ export default function Images() {
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      background: '#fafafa',
+                      background: 'var(--thumb-bg)',
                       overflow: 'hidden',
                     }}
                   >

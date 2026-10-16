@@ -1,20 +1,67 @@
-html, body, #root { height: 100%; margin: 0; }
-body { background: #f5f6f8; }
+/* 主题颜色:浅色为默认;深色由 <html data-theme="dark"> 触发(见 src/theme.ts) */
+:root {
+  --bg-page: #f5f6f8;
+  --bg-surface: #fff;
+  --border: #eee;
+  --border-ctrl: #d9d9d9;
+  --text: rgba(0, 0, 0, .88);
+  --text-secondary: #666;
+  --text-muted: #999;
+  --placeholder: #bbb;
+  --hover-bg: #f0f0f0;
+  --th-bg: #f5f5f5;
+  --sel-bg: #e6f4ff;
+  --code-bg: #f2f2f2;
+  --quote-border: #ddd;
+  --hl-bg: #fff1a8;
+  --card-shadow: rgba(0, 0, 0, .12);
+  --node-bg: #fff;
+  --node-focus-bg: #fffbe6;
+  --minimap-mask: rgba(240, 240, 240, .6);
+  --thumb-bg: #fafafa;
+  --link-chip: #1677ff;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg-page: #000;
+  --bg-surface: #141414;
+  --border: #303030;
+  --border-ctrl: #424242;
+  --text: rgba(255, 255, 255, .85);
+  --text-secondary: #a6a6a6;
+  --text-muted: #8c8c8c;
+  --placeholder: #595959;
+  --hover-bg: #262626;
+  --th-bg: #1d1d1d;
+  --sel-bg: #111a2c;
+  --code-bg: #2b2b2b;
+  --quote-border: #434343;
+  --hl-bg: #594214;
+  --card-shadow: rgba(0, 0, 0, .6);
+  --node-bg: #1f1f1f;
+  --node-focus-bg: #3a3420;
+  --minimap-mask: rgba(20, 20, 20, .6);
+  --thumb-bg: #1d1d1d;
+  --link-chip: #69b1ff;
+}
 
-.app-header { display: flex; align-items: center; gap: 16px; background: #fff; padding: 0 20px; border-bottom: 1px solid #eee; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--bg-page); color: var(--text); }
+
+.app-header { display: flex; align-items: center; gap: 16px; background: var(--bg-surface); padding: 0 20px; border-bottom: 1px solid var(--border); }
 .app-title { font-size: 18px; font-weight: 600; cursor: pointer; }
 .page { padding: 20px 24px; height: calc(100vh - 64px); overflow: auto; box-sizing: border-box; }
 
 .card-item { cursor: pointer; }
-.card-item:hover { box-shadow: 0 2px 8px rgba(0, 0, 0, .12); }
+.card-item:hover { box-shadow: 0 2px 8px var(--card-shadow); }
 .card-del { opacity: 0; transition: opacity .15s; }
 .card-item:hover .card-del, .card-del:focus-within { opacity: 1; }
-.excerpt { color: #666; margin: 6px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.excerpt { color: var(--text-secondary); margin: 6px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
-.hl { background: #fff1a8; color: inherit; padding: 0 1px; }
+.hl { background: var(--hl-bg); color: inherit; padding: 0 1px; }
 
 /* 富文本编辑器 */
-.editor-wrap { border: 1px solid #d9d9d9; border-radius: 16px; background: #fff; overflow: hidden; }
+.editor-wrap { border: 1px solid var(--border-ctrl); border-radius: 16px; background: var(--bg-surface); overflow: hidden; }
 .editor-toolbar { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 2px solid #1677ff; }
 .editor-toolbar-scroll { flex: 1; min-width: 0; overflow: hidden; }
 .editor-toolbar-items { display: flex; align-items: center; gap: 4px; width: max-content; }
@@ -28,7 +75,7 @@ body { background: #f5f6f8; }
 .fill .editor-body { flex: 1; min-height: 0; overflow: auto; }
 .fill .tiptap { min-height: 100%; box-sizing: border-box; }
 .char-cell { height: 30px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 6px; font-size: 16px; }
-.char-cell:hover { background: #f0f0f0; }
+.char-cell:hover { background: var(--hover-bg); }
 .tiptap img { max-width: 100%; height: auto; border-radius: 8px; }
 /* 图片操作条:悬停或选中时显示;只读模式隐藏删除按钮 */
 .img-node { position: relative; display: inline-block; max-width: 100%; line-height: 0; vertical-align: top; }
@@ -42,22 +89,22 @@ body { background: #f5f6f8; }
 .is-readonly .img-edit { display: none !important; }
 .tiptap mark { border-radius: 3px; padding: 0 2px; }
 .tiptap table { border-collapse: collapse; width: 100%; margin: 8px 0; table-layout: fixed; }
-.tiptap th, .tiptap td { border: 1px solid #d9d9d9; padding: 6px 10px; vertical-align: top; position: relative; }
-.tiptap th { background: #f5f5f5; font-weight: 600; text-align: left; }
-.tiptap .selectedCell { background: #e6f4ff; }
+.tiptap th, .tiptap td { border: 1px solid var(--border-ctrl); padding: 6px 10px; vertical-align: top; position: relative; }
+.tiptap th { background: var(--th-bg); font-weight: 600; text-align: left; }
+.tiptap .selectedCell { background: var(--sel-bg); }
 .tiptap .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: 0; width: 4px; background: #1677ff; pointer-events: none; }
 .tiptap { padding: 12px 16px; min-height: 320px; outline: none; }
-.tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: #bbb; float: left; height: 0; pointer-events: none; }
-.tiptap blockquote { border-left: 3px solid #ddd; margin-left: 0; padding-left: 12px; color: #666; }
+.tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--placeholder); float: left; height: 0; pointer-events: none; }
+.tiptap blockquote { border-left: 3px solid var(--quote-border); margin-left: 0; padding-left: 12px; color: var(--text-secondary); }
 .tiptap pre { background: #1e1e1e; color: #eee; padding: 10px 12px; border-radius: 6px; overflow: auto; }
-.tiptap code { background: #f2f2f2; padding: 1px 4px; border-radius: 3px; }
+.tiptap code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
 .tiptap pre code { background: none; padding: 0; }
-.tiptap a[href^="zhishi-card://"] { color: #1677ff; background: #e6f4ff; border-radius: 4px; padding: 0 3px; cursor: pointer; }
+.tiptap a[href^="zhishi-card://"] { color: var(--link-chip); background: var(--sel-bg); border-radius: 4px; padding: 0 3px; cursor: pointer; }
 
-.graph-wrap { height: calc(100vh - 150px); background: #fff; border: 1px solid #eee; border-radius: 16px; overflow: hidden; }
+.graph-wrap { height: calc(100vh - 150px); background: var(--bg-surface); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
 .graph-wrap .react-flow__pane { cursor: move !important; }
 
 .link-panel-item { flex-wrap: wrap; min-width: 0; }
 .link-panel-item .ant-list-item-action { flex: none; margin-inline-start: auto; }
 .link-panel-title { min-width: 0; overflow-wrap: anywhere; }
-.link-panel-note { min-width: 0; margin-left: 8px; color: #999; overflow-wrap: anywhere; }
+.link-panel-note { min-width: 0; margin-left: 8px; color: var(--text-muted); overflow-wrap: anywhere; }

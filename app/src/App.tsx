@@ -5,6 +5,7 @@ import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { hideSplash } from './splash';
 import GlobalSearch from './components/GlobalSearch';
 import IconBtn from './components/IconBtn';
+import ThemeMenu from './components/ThemeMenu';
 import CardEditor from './pages/CardEditor';
 import GraphView from './pages/GraphView';
 import KbDetail from './pages/KbDetail';
@@ -41,6 +42,7 @@ export default function App() {
           知识图谱
         </span>
         <div style={{ flex: 1 }} />
+        <ThemeMenu />
         <IconBtn tip="全局搜索 (Ctrl+K)" icon={<SearchOutlined />} onClick={() => setSearchOpen(true)} />
       </Layout.Header>
       <Layout.Content>

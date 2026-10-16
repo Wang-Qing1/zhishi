@@ -82,7 +82,7 @@ export default function VersionHistory({ open, cardId, dirty, onClose, onRestore
               renderItem={(v) => (
                 <List.Item
                   onClick={() => pick(v.id)}
-                  style={{ cursor: 'pointer', background: current?.id === v.id ? '#e6f4ff' : undefined }}
+                  style={{ cursor: 'pointer', background: current?.id === v.id ? 'var(--sel-bg)' : undefined }}
                 >
                   <div style={{ minWidth: 0 }}>
                     <div>{new Date(v.savedAt).toLocaleString()}</div>
@@ -95,7 +95,7 @@ export default function VersionHistory({ open, cardId, dirty, onClose, onRestore
             />
           </Col>
           <Col span={16}>
-            <div style={{ height: 460, overflow: 'auto', border: '1px solid #d9d9d9', borderRadius: 8, padding: '8px 4px' }}>
+            <div style={{ height: 460, overflow: 'auto', border: '1px solid var(--border-ctrl)', borderRadius: 8, padding: '8px 4px' }}>
               {current && (
                 <>
                   <Typography.Title level={5} style={{ margin: '4px 16px 0' }}>

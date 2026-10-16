@@ -109,7 +109,7 @@ const cell: CSSProperties = {
   width: 24,
   height: 24,
   borderRadius: 6,
-  border: '1px solid #d9d9d9',
+  border: '1px solid var(--border-ctrl)',
   cursor: 'pointer',
   display: 'inline-flex',
   alignItems: 'center',
@@ -290,7 +290,7 @@ export default function EditorToolbar({ editor, kbId, currentCardId, preview, fu
   });
   const c = () => editor.chain().focus();
   const ro = preview; // 预览模式下除预览/全屏外都不可用
-  const textColor = (editor.getAttributes('textStyle').color as string | undefined) ?? '#000000';
+  const textColor = (editor.getAttributes('textStyle').color as string | undefined) ?? 'currentColor';
   const hlColor = (editor.getAttributes('highlight').color as string | undefined) ?? '#fff3bf';
 
   const pickImage = (file?: File) => {

@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>知识库</title>
+    <!-- 最早期确定深浅色(与 src/theme.ts 保持一致),避免深色用户启动时先闪一下白屏 -->
+    <script>
+      (function () {
+        try {
+          var m = localStorage.getItem('zhishi.theme');
+          var dark = m === 'dark' || (m !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        } catch (e) {}
+      })();
+    </script>
     <!-- 启动画面:纯 HTML/CSS,不依赖 JS,页面一加载就能显示;主界面数据加载完成后由 src/splash.ts 收起 -->
     <style>
       html, body { margin: 0; height: 100%; background: #f5f6f8; }
@@ -21,6 +31,8 @@
       }
       #boot.done .boot-bar { animation: none; width: 100%; transition: width .2s ease; }
       @keyframes boot-grow { to { width: 90%; } }
+      html[data-theme='dark'], html[data-theme='dark'] body, html[data-theme='dark'] #boot { background: #000; }
+      html[data-theme='dark'] .boot-track { background: #1f2a3d; }
     </style>
   </head>
   <body>
