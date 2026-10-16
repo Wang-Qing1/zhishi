@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { api, errMsg } from '../api';
 import type { Tag } from '../types';
 
-const PALETTE = ['#1677ff', '#52c41a', '#fa8c16', '#eb2f96', '#722ed1', '#13c2c2', '#f5222d', '#faad14'];
+export const PALETTE = ['#1677ff', '#52c41a', '#fa8c16', '#eb2f96', '#722ed1', '#13c2c2', '#f5222d', '#faad14'];
 
 interface Props {
   kbId: number;

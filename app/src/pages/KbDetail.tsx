@@ -10,6 +10,7 @@ import {
   PushpinFilled,
   PushpinOutlined,
   TagOutlined,
+  TagsOutlined,
 } from '@ant-design/icons';
 import {
   App,
@@ -34,6 +35,7 @@ import Hint, { EmptyHint } from '../components/Hint';
 import Confirm from '../components/Confirm';
 import IconBtn from '../components/IconBtn';
 import ModalFooter from '../components/ModalFooter';
+import TagManager from '../components/TagManager';
 import { CARD_SORTS, type CardSort, type CardSummary, type Kb, type Tag as TagT } from '../types';
 
 const PAGE_SIZE = 24;
@@ -59,6 +61,7 @@ export default function KbDetail() {
   const [tags, setTags] = useState<TagT[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
   const [tagEdit, setTagEdit] = useState<TagT | null>(null);
+  const [tagMgr, setTagMgr] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -138,6 +141,7 @@ export default function KbDetail() {
     setMulti(false);
     setPicked(new Set());
     setTagOp(null);
+    setTagMgr(false);
   }, [kbId]);
 
   const saveTag = async () => {
@@ -242,16 +246,27 @@ export default function KbDetail() {
     }
   };
 
+  // 删除标签:同时从筛选条件和多选中的标签里去掉;失败时抛出错误由调用方提示
+  const removeTag = async (id: number) => {
+    await api.tagDelete(id);
+    setSelected((s) => s.filter((x) => x !== id));
+    setOpTagIds((s) => s.filter((x) => x !== id));
+    loadMeta();
+    setRevision((n) => n + 1);
+  };
+
   const delTag = async () => {
     try {
-      await api.tagDelete(tagEdit!.id);
-      setSelected((s) => s.filter((x) => x !== tagEdit!.id));
+      await removeTag(tagEdit!.id);
       setTagEdit(null);
-      loadMeta();
-      setRevision((n) => n + 1);
     } catch (e) {
       message.error(errMsg(e));
     }
+  };
+
+  const createTag = async (name: string, color: string) => {
+    await api.tagCreate(kbId, name, color);
+    loadMeta();
   };
 
   return (
@@ -307,6 +322,7 @@ export default function KbDetail() {
           />
         </div>
         <Space>
+          <IconBtn tip="标签管理" icon={<TagsOutlined />} onClick={() => setTagMgr(true)} />
           <IconBtn
             tip={multi ? '退出多选 (Esc)' : '多选'}
             type={multi ? 'primary' : 'default'}
@@ -414,6 +430,22 @@ export default function KbDetail() {
         />
       )}
 
+      <TagManager
+        open={tagMgr}
+        tags={tags}
+        onClose={() => setTagMgr(false)}
+        onCreate={createTag}
+        onDelete={(t) => removeTag(t.id)}
+        onEdit={(t) => {
+          setTagEdit(t);
+          form.setFieldsValue({ name: t.name, color: t.color });
+        }}
+        onFilter={(t) => {
+          setSelected([t.id]);
+          setTagMgr(false);
+        }}
+      />
+
       <Modal
         open={tagOp !== null}
         title={`${tagOp === 'add' ? '添加' : '移除'}标签(${picked.size} 张卡片)`}
@@ -445,6 +477,8 @@ export default function KbDetail() {
       <Modal
         open={!!tagEdit}
         title="编辑标签"
+        // 可能从“标签管理”弹窗里打开;它因 forceRender 早挂载、默认会被后打开的弹窗盖住,这里抬高层级
+        zIndex={1010}
         onOk={saveTag}
         onCancel={() => setTagEdit(null)}
         destroyOnClose
